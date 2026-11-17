@@ -1,0 +1,82 @@
+{
+  "name": "fiche",
+  "productName": "fiche",
+  "version": "0.2.0",
+  "description": "fiche PC client",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "sync-ui": "node scripts/sync-ui.js",
+    "start": "npm run sync-ui && npm run sync-engine && electron .",
+    "dist": "npm run sync-ui && npm run sync-engine && electron-builder --win nsis portable --x64",
+    "dist:msix": "npm run sync-ui && npm run sync-engine && helper\\build.cmd && electron-builder --win appx --x64",
+    "sync-engine": "node scripts/sync-engine.js"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "ink.fiche.desktop",
+    "productName": "fiche",
+    "copyright": "fiche",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "ui/**",
+      "package.json",
+      "engine/**",
+      "vendor/**"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "artifactName": "fiche-${version}-${arch}-${target}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "fiche",
+      "artifactName": "fiche-setup-${version}.${ext}",
+      "uninstallDisplayName": "fiche"
+    },
+    "portable": {
+      "artifactName": "fiche-portable-${version}.${ext}"
+    },
+    "appx": {
+      "identityName": "fiche.desktop",
+      "publisher": "CN=fiche-dev",
+      "publisherDisplayName": "fiche",
+      "displayName": "fiche",
+      "applicationId": "fiche",
+      "backgroundColor": "transparent",
+      "languages": [
+        "ko-KR",
+        "en-US"
+      ],
+      "artifactName": "fiche-${version}.msix",
+      "customExtensionsPath": "build/appx-extensions.xml",
+      "minVersion": "10.0.17763.0",
+      "maxVersionTested": "10.0.26100.0"
+    },
+    "extraResources": [
+      {
+        "from": "helper/fiche-startup.exe",
+        "to": "fiche-startup.exe"
+      }
+    ],
+    "asarUnpack": [
+      "engine/**",
+      "vendor/**",
+      "node_modules/@napi-rs/**"
+    ]
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "1.1.0"
+  }
+}
