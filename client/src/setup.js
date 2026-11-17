@@ -138,7 +138,8 @@ async function runSetup() {
   win.webContents.on('will-navigate', e => e.preventDefault());
 
   let installed = null, busy = false;
-  ipcMain.handle('setup:info', () => (setTimeout(reveal, 80), ({ version: app.getVersion(), dir: existing || defaultDir(), update: !!existing })));
+  ipcMain.once('setup:ready', reveal);
+  ipcMain.handle('setup:info', () => ({ version: app.getVersion(), dir: existing || defaultDir(), update: !!existing }));
   ipcMain.handle('setup:pick', async (_e, cur) => {
     const r = await dialog.showOpenDialog(win, { title: '설치할 폴더', defaultPath: cur, properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return null;

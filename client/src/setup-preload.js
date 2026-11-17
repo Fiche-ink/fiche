@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('setup', {
   info: () => ipcRenderer.invoke('setup:info'),
+  ready: () => ipcRenderer.send('setup:ready'),
   pick: cur => ipcRenderer.invoke('setup:pick', cur),
   install: opts => ipcRenderer.invoke('setup:install', opts),
   onProgress: cb => ipcRenderer.on('setup:progress', (_e, p) => cb(p)),
