@@ -12,11 +12,22 @@ fiche sends requests to two destinations, and nothing else:
 Your Claude Code requests after fiche compressed them, sent with your own Claude login headers exactly as Claude Code sent them. fiche does not store or forward those headers anywhere else.
 
 ### 2. `judge.fiche.ink`
-- **Judge numbers:** per-block numbers (length, line stats, character-class shares, entropy, counts) plus salted one-way IDs. The salt is fixed per install, so the same block from the same PC always gets the same ID; it cannot be matched across PCs or reversed.
-- **Outcome signals:** the kind of event (such as a re-read or failed Edit), tool name, time, and the same salted IDs.
-- **What is excluded:** no text, code, or file paths.
-- **Settings control:** turning off **사용 통계 보내기** (Send usage stats) stops outcome signals. Judge numbers are still sent while compression is on.
 
+#### Judge numbers
+
+Per-block numbers (length, line stats, character-class shares, entropy, counts) plus salted one-way IDs. The salt is fixed per install, so the same block from the same PC always gets the same ID; it cannot be matched across PCs or reversed.
+
+#### Outcome signals
+
+The kind of event (such as a re-read or failed Edit), tool name, time, and the same salted IDs.
+
+#### Never sent
+
+Text, code, and file paths.
+
+#### Settings control
+
+Turning off **사용 통계 보내기** (Send usage stats) stops outcome signals. Judge numbers are still sent while compression is on.
 
 ## Published client source vs. local engine
 
