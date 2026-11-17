@@ -124,7 +124,7 @@ async function runSetup() {
   await app.whenReady();
   const existing = await installedDir();
   const win = new BrowserWindow({
-    width: 600, height: 520, resizable: false, maximizable: false, frame: false, show: false,
+    width: 600, height: 580, resizable: false, maximizable: false, frame: false, show: false,
     backgroundColor: '#f6f1ea', title: 'fiche 설치', icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'setup-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
