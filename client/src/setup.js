@@ -44,7 +44,7 @@ async function runningIn(dir) {
 // force it after 10 s.
 async function stopInstalled(dir) {
   if (!(await runningIn(dir))) return;
-  spawn(path.join(dir, EXE), ['--quit'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  spawn(path.join(dir, EXE), ['--quit'], { env: cleanEnv(), detached: true, stdio: 'ignore', windowsHide: true }).unref();
   for (let i = 0; i < 20; i++) { await sleep(500); if (!(await runningIn(dir))) return; }
   const exe = path.join(dir, EXE).replace(/'/g, "''");
   await run('powershell.exe', ['-NoProfile', '-Command',
@@ -101,7 +101,7 @@ function shortcut(file, dir, on) {
   try {
     if (!on) { if (ofs.existsSync(file)) ofs.unlinkSync(file); return; }
     ofs.mkdirSync(path.dirname(file), { recursive: true });
-    shell.writeShortcutLink(file, 'replace', { target: path.join(dir, EXE), cwd: dir, appUserModelId: AUMID, icon: path.join(dir, EXE), iconIndex: 0 });
+    shell.writeShortcutLink(file, 'create', { target: path.join(dir, EXE), cwd: dir, appUserModelId: AUMID, icon: path.join(dir, EXE), iconIndex: 0 });
   } catch { }
 }
 
@@ -111,6 +111,14 @@ async function capture(win, name) {
 }
 
 // ---- install screen ----
+// Environment for the installed copy. The portable wrapper's PORTABLE_EXECUTABLE_* variables
+// (and the test hooks) must not leak into it, or it would start as the installer again.
+function cleanEnv() {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) if (/^PORTABLE_EXECUTABLE_|^FICHE_SETUP_SHOTS/.test(k)) delete env[k];
+  return env;
+}
+
 async function runSetup() {
   app.setAppUserModelId(AUMID);
   await app.whenReady();
@@ -158,7 +166,7 @@ async function runSetup() {
   });
   ipcMain.handle('setup:open', () => {
     if (installed) spawn(path.join(installed.dir, EXE), ['--autostart=' + (installed.autostart ? 1 : 0)],
-      { cwd: installed.dir, detached: true, stdio: 'ignore' }).unref();
+      { env: cleanEnv(), cwd: installed.dir, detached: true, stdio: 'ignore' }).unref();
     setTimeout(() => app.quit(), 300);
   });
   ipcMain.handle('setup:close', () => app.quit());
