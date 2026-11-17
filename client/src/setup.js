@@ -214,7 +214,9 @@ async function runUninstall() {
   // Delete the folder after this process exits.
   const targets = [dir].concat(wipe ? [app.getPath('userData')] : []);
   const cmd = 'ping 127.0.0.1 -n 3 > nul & ' + targets.map(t => `rmdir /s /q "${t}"`).join(' & ');
-  spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', cmd], { cwd: os.tmpdir(), detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  // Verbatim: Node would otherwise quote the whole command and cmd.exe could not parse it.
+  spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${cmd}"`],
+    { cwd: os.tmpdir(), detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref();
   app.exit(0);
 }
 
