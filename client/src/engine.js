@@ -34,8 +34,8 @@ function setup(cfg) {
   const r = root();
   process.env.FICHE_SDK = r;
   process.env.FICHE_FONT_KR = path.join(r, 'vendor', 'NotoSansKR.ttf');
-  // Signed in: the fiche API key ties judge numbers to the account (early tester grant). Otherwise the anonymous install token.
-  process.env.FICHE_JUDGE_TOKEN = cfg.apiKey || installToken(cfg);
+  // Judge auth: the anonymous install token (no sign-in in the app).
+  process.env.FICHE_JUDGE_TOKEN = installToken(cfg);
 }
 
 function load() {

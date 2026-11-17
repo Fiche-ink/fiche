@@ -6,7 +6,7 @@ Because a local proxy on that path sees your Claude Code traffic and login heade
 
 ## Where traffic goes
 
-fiche sends requests to three destinations, and nothing else:
+fiche sends requests to two destinations, and nothing else:
 
 ### 1. `api.anthropic.com`
 Your Claude Code requests after fiche compressed them, sent with your own Claude login headers exactly as Claude Code sent them. fiche does not store or forward those headers anywhere else.
@@ -17,8 +17,6 @@ Your Claude Code requests after fiche compressed them, sent with your own Claude
 - **What is excluded:** no text, code, or file paths.
 - **Settings control:** turning off **사용 통계 보내기** (Send usage stats) stops outcome signals. Judge numbers are still sent while compression is on.
 
-### 3. `api.fiche.ink`
-GitHub sign-in through a device code (approved in your browser) and an account check. Sign-in is optional; without sign-in, the app uses an anonymous install token.
 
 ## Published client source vs. local engine
 
@@ -27,7 +25,6 @@ The public repository at [github.com/fiche-ink/fiche](https://github.com/fiche-i
 - `proxy.js` — the local proxy
 - `net.js` — the single module every fiche request goes through
 - `engine.js` — attaches the client network handler to the compression engine via `setNet()`
-- `account.js` — GitHub device-code sign-in and account check
 - `claude.js` — the Claude Code settings writer
 - `meter.js` — the savings meter
 - Electron main and preload modules
@@ -62,7 +59,7 @@ To inspect live traffic outside the app:
 
 1. Set the environment variable `SSLKEYLOGFILE` to a file path, then quit fiche from the tray icon and start it again so it picks up the variable.
 2. Open Wireshark, go to **Preferences → Protocols → TLS**, and set **(Pre)-Master-Secret log filename** to that file path.
-3. Filter on `tls.handshake.extensions_server_name` to check destination hostnames. From fiche, only `api.anthropic.com`, `judge.fiche.ink` and `api.fiche.ink` should appear. Other programs on your PC show up too, so close what you can, or compare a capture with fiche quit.
+3. Filter on `tls.handshake.extensions_server_name` to check destination hostnames. From fiche, only `api.anthropic.com` and `judge.fiche.ink` should appear. Other programs on your PC show up too, so close what you can, or compare a capture with fiche quit.
 4. Inspect the decrypted HTTP bodies to verify the exact payloads leaving your machine.
 
 ## Contact

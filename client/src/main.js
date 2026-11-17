@@ -5,7 +5,6 @@ const { createProxy, PORT } = require('./proxy');
 const claude = require('./claude');
 const server = require('./server');
 const engine = require('./engine');
-const account = require('./account');
 const meter = require('./meter');
 const net = require('./net');
 const startup = require('./startup');
@@ -66,7 +65,6 @@ async function status() {
     connected, claudeError, claudeFound: claudeInstalled(), autoConnect: cfg.autoConnect !== false, settingsFile: claude.FILE, upstream: cfg.upstream || 'https://api.anthropic.com',
     autostart: (await startup.get()).on, store: startup.isStore, server: { base: server.BASE, ...server.lastStatus() },
     stats: proxy.stats, engine: engine.info(), shareSignals: cfg.shareSignals !== false,
-    account: { signedIn: !!cfg.apiKey, email: cfg.accountEmail || null, keyHint: cfg.apiKey ? cfg.apiKey.slice(0, 6) + '…' + cfg.apiKey.slice(-4) : null },
   };
 }
 
@@ -120,22 +118,11 @@ ipcMain.handle('claude:set', (_e, on) => { cfg.autoConnect = !!on;
   catch (e) { dialog.showErrorBox('fiche', e.message); return status(); }
 });
 ipcMain.handle('signals:set', (_e, on) => { cfg.shareSignals = !!on; engine.setup(cfg); saveCfg(); return status(); });
-// 11-17: sign-in through fiche's device flow (browser approves, app polls for an API key).
 ipcMain.handle('stats:get', () => meter.summary());
 ipcMain.handle('netlog:get', () => net.list());
 net.on('sent', e => { try { if (win && !win.isDestroyed()) win.webContents.send('netlog:update', e); } catch { } });
 // Every compressed request is pushed to the window so the home screen can show it live.
 meter.on('update', r => { try { if (tray) { const t = meter.summary().today; tray.setToolTip(t.before > t.after ? 'fiche · 오늘 ' + (t.before - t.after).toLocaleString('ko-KR') + ' 토큰 아꼈어요' : 'fiche'); } } catch { } try { if (win && !win.isDestroyed()) win.webContents.send('stats:update', r); } catch { } });
-ipcMain.handle('account:signin', async () => {
-  const key = await account.signIn(url => shell.openExternal(url));
-  const m = await account.me(key);
-  cfg.apiKey = key; cfg.accountEmail = m?.email || null;
-  engine.setup(cfg); saveCfg(); return status();
-});
-ipcMain.handle('account:signout', async () => {
-  cfg.apiKey = null; cfg.accountEmail = null;
-  engine.setup(cfg); saveCfg(); return status();
-});
 ipcMain.handle('autostart:set', async (_e, on) => {
   const r = await startup.set(!!on);
   if (on && !r.on && r.state === 'DisabledByUser')
@@ -159,8 +146,6 @@ app.whenReady().then(async () => {
   // OBT: engine paths, judge URL, anonymous install token, signal opt-out flag.
   meter.init(app.getPath('userData'));
   try { engine.setup(cfg); saveCfg(); engine.load().catch(() => {}); } catch (e) { console.error('engine setup', e); }
-  // A revoked key falls back to the anonymous install token.
-  if (cfg.apiKey) account.me(cfg.apiKey).then(m => { if (m?.invalid) { cfg.apiKey = null; cfg.accountEmail = null; engine.setup(cfg); saveCfg(); } else if (m?.email) { cfg.accountEmail = m.email; saveCfg(); } }).catch(() => {});
   try { await proxy.listen(); }
   catch (e) { proxyError = e.code === 'EADDRINUSE' ? `포트 ${PORT}를 다른 프로그램이 쓰고 있어요.` : String(e.message || e); }
   autoConnect();
