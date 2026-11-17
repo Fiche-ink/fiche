@@ -1,5 +1,5 @@
 // fiche PC client: frameless window over ui/, tray, local proxy, Claude Code connection.
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog, Notification } = require('electron');
 const fs = require('fs'), path = require('path');
 const { createProxy, PORT } = require('./proxy');
 const claude = require('./claude');
@@ -63,7 +63,7 @@ async function status() {
   try { connected = claude.isConnected(PROXY_URL); } catch (e) { claudeError = e.message; }
   return {
     version: app.getVersion(), port: PORT, proxyOn: cfg.proxyOn, proxyListening: !proxyError, proxyError,
-    connected, claudeError, settingsFile: claude.FILE, upstream: cfg.upstream || 'https://api.anthropic.com',
+    connected, claudeError, claudeFound: claudeInstalled(), autoConnect: cfg.autoConnect !== false, settingsFile: claude.FILE, upstream: cfg.upstream || 'https://api.anthropic.com',
     autostart: (await startup.get()).on, store: startup.isStore, server: { base: server.BASE, ...server.lastStatus() },
     stats: proxy.stats, engine: engine.info(), shareSignals: cfg.shareSignals !== false,
     account: { signedIn: !!cfg.apiKey, email: cfg.accountEmail || null, keyHint: cfg.apiKey ? cfg.apiKey.slice(0, 6) + '…' + cfg.apiKey.slice(-4) : null },
@@ -78,6 +78,35 @@ function setClaude(on) {
   cfg.connected = on; saveCfg();
 }
 
+// Claude Code is installed if its config folder exists or the `claude` command is on PATH
+// (native installer: ~/.local/bin/claude.exe; npm: claude.cmd).
+function claudeInstalled() {
+  const home = os.homedir();
+  if (fs.existsSync(path.join(home, '.claude')) || fs.existsSync(path.join(home, '.claude.json'))) return true;
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
+  const dirs = (process.env.PATH || '').split(path.delimiter).concat(path.join(home, '.local', 'bin'));
+  return dirs.some(d => d && exts.some(e => fs.existsSync(path.join(d, 'claude' + e))));
+}
+
+// Connect Claude Code on its own: at launch and every 30 s (so a Claude Code installed while
+// fiche runs gets connected too). Turning the switch off by hand sets cfg.autoConnect = false,
+// and fiche never reconnects on its own after that.
+function autoConnect() {
+  if (cfg.autoConnect === false || proxyError) return;
+  let on;
+  try { on = claude.isConnected(PROXY_URL); } catch { return; }
+  if (on) { if (!cfg.connected) { cfg.connected = true; saveCfg(); } return; }
+  if (!claudeInstalled()) return;
+  try { setClaude(true); } catch (e) { console.error('auto connect', e); return; }
+  try { if (win && !win.isDestroyed()) win.webContents.send('claude:update', true); } catch { }
+  try {
+    if (Notification.isSupported()) new Notification({
+      title: 'Claude Code 자동 연결', icon: ICON,
+      body: '자동으로 연결됐어요. 열려 있는 Claude Code 창은 다시 시작해야 적용돼요.',
+    }).show();
+  } catch { }
+}
+
 ipcMain.handle('win', (_e, action) => {
   if (!win) return;
   if (action === 'min') win.minimize();
@@ -86,7 +115,7 @@ ipcMain.handle('win', (_e, action) => {
 });
 ipcMain.handle('status', () => status());
 ipcMain.handle('proxy:set', (_e, on) => { cfg.proxyOn = !!on; saveCfg(); return status(); });
-ipcMain.handle('claude:set', (_e, on) => {
+ipcMain.handle('claude:set', (_e, on) => { cfg.autoConnect = !!on;
   try { setClaude(!!on); return status(); }
   catch (e) { dialog.showErrorBox('fiche', e.message); return status(); }
 });
@@ -125,6 +154,7 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(async () => {
+  if (process.platform === 'win32') app.setAppUserModelId('ink.fiche.desktop');
   loadCfg();
   // OBT: engine paths, judge URL, anonymous install token, signal opt-out flag.
   meter.init(app.getPath('userData'));
@@ -133,7 +163,8 @@ app.whenReady().then(async () => {
   if (cfg.apiKey) account.me(cfg.apiKey).then(m => { if (m?.invalid) { cfg.apiKey = null; cfg.accountEmail = null; engine.setup(cfg); saveCfg(); } else if (m?.email) { cfg.accountEmail = m.email; saveCfg(); } }).catch(() => {});
   try { await proxy.listen(); }
   catch (e) { proxyError = e.code === 'EADDRINUSE' ? `포트 ${PORT}를 다른 프로그램이 쓰고 있어요.` : String(e.message || e); }
-  if (cfg.connected && !proxyError) { try { setClaude(true); } catch { } }
+  autoConnect();
+  setInterval(autoConnect, 30000);
   server.account().then(r => console.log('fiche server:', r.status));
   createTray();
   createWindow();

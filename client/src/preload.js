@@ -16,6 +16,7 @@ const api = {
   onStats: cb => ipcRenderer.on('stats:update', (_e, r) => cb(r)),
   signOut: () => ipcRenderer.invoke('account:signout'),
   openExternal: url => ipcRenderer.invoke('open:external', url),
+  onClaude: cb => ipcRenderer.on('claude:update', (_e, on) => cb(on)),
 };
 contextBridge.exposeInMainWorld('fiche', api);
 
@@ -31,6 +32,7 @@ function bind(el, real, set) {
     const got = await set(want);
     if (got !== want) { syncing = true; el.click(); syncing = false; }
   });
+  el._fsync = v => { if (el.classList.contains('on') !== !!v) { syncing = true; el.click(); syncing = false; } };
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
@@ -38,7 +40,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   const s = await api.status();
   const q = sel => document.querySelector(sel);
   bind(q('#proxyToggle'), s.proxyOn, async on => (await api.setProxy(on)).proxyOn);
-  bind(q('[aria-label="Claude Code 연결"]'), s.connected, async on => (await api.setClaude(on)).connected);
+  const ccSw = q('[aria-label="Claude Code 연결"]');
+  const ccDetails = ccSw?.closest('.feature')?.querySelector('.details');
+  const ccText = st => st.connected ? 'settings.json에 연결돼 있고, fiche를 종료하면 해제돼요. 원본은 settings.json.fiche-bak에 있어요.'
+    : !st.autoConnect ? '다시 켜기 전에는 자동으로 연결하지 않아요.'
+    : !st.claudeFound ? 'Claude Code를 찾지 못했어요. 설치하면 자동으로 연결돼요.' : null;
+  const ccPaint = st => { const t = ccText(st); if (ccDetails && t) ccDetails.textContent = t; };
+  ccPaint(s);
+  bind(ccSw, s.connected, async on => { const r = await api.setClaude(on); ccPaint(r); return r.connected; });
+  api.onClaude(async on => { ccSw?._fsync?.(on); ccPaint(await api.status()); });
   bind(q('[aria-label="자동 실행"]'), s.autostart, async on => (await api.setAutostart(on)).autostart);
   bind(q('[aria-label="사용 통계 보내기"]'), s.shareSignals, async on => (await api.setSignals(on)).shareSignals);
   // 11-17: the 로그인 row in settings. Signed out the app still works (anonymous install ID).
