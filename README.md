@@ -14,6 +14,7 @@ Because fiche acts as a local proxy for your Claude Code traffic, this repositor
 - `client/src/net.js` — the single module every fiche request goes through
 - `client/src/engine.js` — loads the local compression engine and attaches its network handler via `setNet()`
 - `client/src/claude.js` — the Claude Code settings writer
+- `client/src/setup.js` — the installer and uninstaller (copies the app, makes shortcuts and the Installed apps entry; no network)
 - `client/src/meter.js` — the savings meter
 - Electron main and preload modules
 

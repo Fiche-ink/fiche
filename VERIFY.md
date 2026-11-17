@@ -26,6 +26,7 @@ The public repository at [github.com/fiche-ink/fiche](https://github.com/fiche-i
 - `net.js` — the single module every fiche request goes through
 - `engine.js` — attaches the client network handler to the compression engine via `setNet()`
 - `claude.js` — the Claude Code settings writer
+- `setup.js` — the installer and uninstaller (copies the app, makes shortcuts and the Installed apps entry; no network)
 - `meter.js` — the savings meter
 - Electron main and preload modules
 

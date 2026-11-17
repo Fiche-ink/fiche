@@ -13,6 +13,8 @@ const os = require('os');
 const PROXY_URL = `http://127.0.0.1:${PORT}`;
 const ICON = path.join(__dirname, 'assets', 'icon.png');
 
+// Setup, uninstall and quit requests run their own short flows (src/setup.js).
+if (require('./setup').handles()) return;
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 
 // ---- config (userData/config.json) ----
@@ -131,7 +133,11 @@ ipcMain.handle('autostart:set', async (_e, on) => {
 });
 ipcMain.handle('open:external', (_e, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); });
 
-app.on('second-instance', showWindow);
+app.on('second-instance', (_e, argv) => {
+  // `fiche.exe --quit` / `--uninstall` from the installer: close cleanly so Claude Code settings are restored.
+  if (argv.includes('--quit') || argv.includes('--uninstall')) { quitting = true; app.quit(); return; }
+  showWindow();
+});
 app.on('window-all-closed', () => { /* stay in tray */ });
 app.on('before-quit', () => {
   engine.flush();
@@ -143,6 +149,9 @@ app.on('before-quit', () => {
 app.whenReady().then(async () => {
   if (process.platform === 'win32') app.setAppUserModelId('ink.fiche.desktop');
   loadCfg();
+  // First start after install: apply the installer's "start with Windows" choice.
+  const auto = process.argv.find(x => x.startsWith('--autostart='));
+  if (auto) startup.set(auto.endsWith('=1')).catch(() => {});
   // OBT: engine paths, judge URL, anonymous install token, signal opt-out flag.
   meter.init(app.getPath('userData'));
   try { engine.setup(cfg); saveCfg(); engine.load().catch(() => {}); } catch (e) { console.error('engine setup', e); }
