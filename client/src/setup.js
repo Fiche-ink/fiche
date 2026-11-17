@@ -206,7 +206,12 @@ async function runUninstall() {
     const cfg = JSON.parse(ofs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8'));
     claude.disconnect(`http://127.0.0.1:${require('./proxy').PORT}`, cfg.upstream);
   } catch { }
-  try { app.setLoginItemSettings({ openAtLogin: false, args: ['--hidden'] }); } catch { }
+  // Start-with-Windows entry: Electron names the Run value after the app ID, which this process
+  // has not set, so name it explicitly and also delete the values directly.
+  try { app.setLoginItemSettings({ openAtLogin: false, name: AUMID, args: ['--hidden'] }); } catch { }
+  for (const k of ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+                   'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'])
+    await reg(['delete', k, '/v', AUMID, '/f']);
   shortcut(desktopLnk(), dir, false);
   shortcut(startMenuLnk(), dir, false);
   await reg(['delete', KEY, '/f']);
