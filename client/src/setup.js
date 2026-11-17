@@ -130,11 +130,15 @@ async function runSetup() {
   });
   win.removeMenu();
   win.loadFile(path.join(__dirname, '..', 'ui', 'setup.html'));
-  win.once('ready-to-show', () => { win.show(); if (shots) capture(win, '01-start').then(autoInstall); });
+  // Shown once the screen has asked for its info (so the path and version are filled in);
+  // the timer is a fallback in case that never happens.
+  let shown = false;
+  const reveal = () => { if (shown || win.isDestroyed()) return; shown = true; win.show(); if (shots) capture(win, '01-start').then(autoInstall); };
+  setTimeout(reveal, 2000);
   win.webContents.on('will-navigate', e => e.preventDefault());
 
   let installed = null, busy = false;
-  ipcMain.handle('setup:info', () => ({ version: app.getVersion(), dir: existing || defaultDir(), update: !!existing }));
+  ipcMain.handle('setup:info', () => (setTimeout(reveal, 80), ({ version: app.getVersion(), dir: existing || defaultDir(), update: !!existing })));
   ipcMain.handle('setup:pick', async (_e, cur) => {
     const r = await dialog.showOpenDialog(win, { title: '설치할 폴더', defaultPath: cur, properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return null;
