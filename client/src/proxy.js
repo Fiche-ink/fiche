@@ -10,6 +10,20 @@ const net = require('./net');
 
 const PORT = 47321;
 const stats = { requests: 0, compressed: 0, passthrough: 0, errors: 0, lastError: null };
+// Claude's own limit readings from the response headers (anthropic-ratelimit-unified-*: 7d/5h
+// utilization, reset times). Only plain numbers are kept, under whatever names the headers use, so
+// a renamed or new header changes the report instead of breaking it (carbon 7.8).
+const LIMIT_PREFIX = 'anthropic-ratelimit-unified-';
+let limits = {}, limitsAt = 0;
+function readLimits(headers) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers || {})) {
+    if (!k.startsWith(LIMIT_PREFIX)) continue;
+    const n = Number(Array.isArray(v) ? v[0] : v);
+    if (Number.isFinite(n) && Object.keys(out).length < 16) out[k.slice(LIMIT_PREFIX.length).slice(0, 32)] = n;
+  }
+  if (Object.keys(out).length) { limits = out; limitsAt = Date.now(); }
+}
 
 function createProxy(getConfig, getInfo = async () => ({})) {
   const srv = http.createServer(async (req, res) => {
@@ -41,7 +55,7 @@ function createProxy(getConfig, getInfo = async () => ({})) {
       method: req.method, path: basePath + req.url, headers,
     }, upRes => {
       try { net.upstream({ host: up.hostname, path: basePath + req.url.split('?')[0], bytesIn: origLen, bytesOut: body.length, status: upRes.statusCode, ms: Date.now() - t0, compressed: body.length !== origLen }); } catch { }
-      res.writeHead(upRes.statusCode, upRes.headers); upRes.pipe(res);
+      readLimits(upRes.headers); res.writeHead(upRes.statusCode, upRes.headers); upRes.pipe(res);
     });
     out.on('error', e => {
       stats.errors++; stats.lastError = String(e.message || e);
@@ -53,6 +67,7 @@ function createProxy(getConfig, getInfo = async () => ({})) {
   srv.requestTimeout = 0; srv.headersTimeout = 0; // long streaming turns
   return {
     stats,
+    limits: () => (limitsAt && Date.now() - limitsAt < 7 * 864e5 ? { ...limits, age_s: Math.round((Date.now() - limitsAt) / 1000) } : {}),
     listen: () => new Promise((ok, fail) => { srv.once('error', fail); srv.listen(PORT, '127.0.0.1', () => ok(PORT)); }),
     close: () => new Promise(ok => srv.close(() => ok())),
   };

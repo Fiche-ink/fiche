@@ -12,7 +12,7 @@ const CACHE = path.join(os.homedir(), '.cache', 'fiche-cc');
 const JUDGE_FLAG = path.join(CACHE, 'judge'), SIGNAL_FLAG = path.join(CACHE, 'signals');
 
 let mod = null, loading = null, lastError = null;
-const stats = { runs: 0, imaged: 0, imageTokens: 0, textCharsImaged: 0, failed: 0 };
+const stats = { signedOut: 0, runs: 0, imaged: 0, imageTokens: 0, textCharsImaged: 0, failed: 0 };
 
 // Packaged: <resources>/app.asar.unpacked holds engine/, vendor/ and node_modules/@napi-rs.
 function root() {
@@ -20,22 +20,22 @@ function root() {
   return here.includes('app.asar') ? here.replace('app.asar', 'app.asar.unpacked') : here;
 }
 
-// Anonymous install token: random, made once, kept in the app's config. The server stores only its hash.
-function installToken(cfg) {
-  if (!/^fi_[A-Za-z0-9_-]{24,64}$/.test(cfg.installToken || '')) cfg.installToken = 'fi_' + crypto.randomBytes(24).toString('base64url');
-  return cfg.installToken;
-}
-
-function setup(cfg) {
+function setup(cfg, token) {
   fs.mkdirSync(CACHE, { recursive: true });
   fs.writeFileSync(JUDGE_FLAG, JUDGE_URL + '\n');
-  if (cfg.shareSignals === false) fs.rmSync(SIGNAL_FLAG, { force: true });
+  // One switch (handoff 4.3): data contribution. On, the engine sends outcome signals and the
+  // shape sequence; off, the judge still decides (it has to) but keeps nothing for learning.
+  if (cfg.contrib === false) fs.rmSync(SIGNAL_FLAG, { force: true });
   else fs.writeFileSync(SIGNAL_FLAG, 'app\n');
   const r = root();
   process.env.FICHE_SDK = r;
   process.env.FICHE_FONT_KR = path.join(r, 'vendor', 'NotoSansKR.ttf');
-  // Judge auth: the anonymous install token (no sign-in in the app).
-  process.env.FICHE_JUDGE_TOKEN = installToken(cfg);
+  setToken(token);
+}
+// Judge auth: the fiche API key of the signed-in account (handoff 3: sign-in is required).
+// Signed out, compress() is not called at all and requests go out untouched.
+function setToken(token) {
+  if (token) process.env.FICHE_JUDGE_TOKEN = token; else delete process.env.FICHE_JUDGE_TOKEN;
 }
 
 function load() {
@@ -63,6 +63,9 @@ function projectOf(p) {
 }
 
 async function compress(buf) {
+  // Signed out: nothing is compressed, the request goes upstream untouched (decisions come only from
+  // the judge server, which needs the account).
+  if (!process.env.FICHE_JUDGE_TOKEN) { stats.signedOut++; return null; }
   let payload;
   try { payload = JSON.parse(buf.toString('utf8')); } catch { return null; }
   try {
@@ -84,4 +87,4 @@ async function compress(buf) {
 function flush() { return mod?.flushSignals ? mod.flushSignals().catch(() => {}) : Promise.resolve(); }
 setInterval(flush, 5 * 60e3).unref?.();
 
-module.exports = { flush, setup, compress, load, stats, info: () => ({ judge: JUDGE_URL, root: root(), loaded: !!mod, lastError, signals: fs.existsSync(SIGNAL_FLAG) }) };
+module.exports = { flush, setup, setToken, compress, load, stats, info: () => ({ judge: JUDGE_URL, root: root(), loaded: !!mod, lastError, signals: fs.existsSync(SIGNAL_FLAG) }) };

@@ -3,12 +3,20 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const api = {
+  lang: ipcRenderer.sendSync('lang:get'),
+  setLang: l => ipcRenderer.invoke('lang:set', l),
   win: action => ipcRenderer.invoke('win', action),
   status: () => ipcRenderer.invoke('status'),
   setProxy: on => ipcRenderer.invoke('proxy:set', on),
   setClaude: on => ipcRenderer.invoke('claude:set', on),
   setAutostart: on => ipcRenderer.invoke('autostart:set', on),
-  setSignals: on => ipcRenderer.invoke('signals:set', on),
+  setContrib: on => ipcRenderer.invoke('contrib:set', on),
+  setPlan: plan => ipcRenderer.invoke('plan:set', plan),
+  signIn: () => ipcRenderer.invoke('account:signin'),
+  cancelSignIn: () => ipcRenderer.invoke('account:cancel'),
+  signOut: () => ipcRenderer.invoke('account:signout'),
+  refreshAccount: () => ipcRenderer.invoke('account:refresh'),
+  onAccount: cb => ipcRenderer.on('account:update', (_e, a) => cb(a)),
   stats: () => ipcRenderer.invoke('stats:get'),
   netlog: () => ipcRenderer.invoke('netlog:get'),
   onNetlog: cb => ipcRenderer.on('netlog:update', (_e, r) => cb(r)),
@@ -16,6 +24,7 @@ const api = {
   openExternal: url => ipcRenderer.invoke('open:external', url),
   onClaude: cb => ipcRenderer.on('claude:update', (_e, on) => cb(on)),
 };
+const L = (ko, en) => api.lang === 'en' ? en : ko;
 contextBridge.exposeInMainWorld('fiche', api);
 
 // Wire a UI switch to a main-process setting: match the real state first, then follow clicks.
@@ -36,18 +45,19 @@ function bind(el, real, set) {
 window.addEventListener('DOMContentLoaded', async () => {
   document.body.classList.remove('framed'); // the app window is the frame
   const s = await api.status();
-  { const v = [...document.querySelectorAll('.item')].find(i => i.querySelector('b')?.textContent.trim() === '버전'); const m = v?.querySelector('.mono'); if (m) m.textContent = s.version; }
-  const q = sel => document.querySelector(sel);
+  { const v = [...document.querySelectorAll('.item')].find(i => i.querySelector('b')?.textContent.trim() === (api.lang === 'en' ? 'Version' : '버전')); const m = v?.querySelector('.mono'); if (m) m.textContent = s.version; }
+  // ui/i18n.js keeps the Korean label in data-ko-aria-label when it shows English, so match either.
+  const q = sel => document.querySelector(sel.replace(/\[aria-label="([^"]*)"\]/g, (m, v) => `:is([data-ko-aria-label="${v}"],[aria-label="${v}"])`));
   bind(q('#proxyToggle'), s.proxyOn, async on => (await api.setProxy(on)).proxyOn);
   const ccSw = q('[aria-label="Claude Code 연결"]');
   const ccDetails = ccSw?.closest('.feature')?.querySelector('.details');
-  const ccText = st => st.connected ? 'settings.json에 연결돼 있어요. fiche를 끄면 원래대로 돌아가요.'
-    : !st.autoConnect ? '꺼 두었어요. 켜면 다시 연결해요.'
-    : !st.claudeFound ? 'Claude Code를 찾지 못했어요. 설치하면 자동으로 연결돼요.' : null;
+  const ccText = st => st.connected ? L('settings.json에 연결돼 있습니다. fiche를 끄면 원래대로 돌아갑니다.', 'Connected through settings.json. Turning fiche off restores the original.')
+    : !st.autoConnect ? L('꺼 두었습니다. 켜면 다시 연결합니다.', 'Turned off. Turn it on to connect again.')
+    : !st.claudeFound ? L('Claude Code를 찾지 못했습니다. 설치하면 자동으로 연결됩니다.', 'Claude Code was not found. It connects automatically once installed.') : null;
   const ccPaint = st => { const t = ccText(st); if (ccDetails && t) ccDetails.textContent = t; };
   ccPaint(s);
   bind(ccSw, s.connected, async on => { const r = await api.setClaude(on); ccPaint(r); return r.connected; });
   api.onClaude(async on => { ccSw?._fsync?.(on); ccPaint(await api.status()); });
   bind(q('[aria-label="자동 실행"]'), s.autostart, async on => (await api.setAutostart(on)).autostart);
-  bind(q('[aria-label="사용 통계 보내기"]'), s.shareSignals, async on => (await api.setSignals(on)).shareSignals);
+  bind(q('[aria-label="데이터 기여"]'), s.contrib, async on => (await api.setContrib(on)).contrib);
 });

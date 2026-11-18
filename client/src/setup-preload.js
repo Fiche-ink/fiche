@@ -2,6 +2,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('setup', {
+  lang: ipcRenderer.sendSync('setup:lang'),
+  setLang: l => ipcRenderer.invoke('setup:setLang', l),
   info: () => ipcRenderer.invoke('setup:info'),
   ready: () => ipcRenderer.send('setup:ready'),
   pick: cur => ipcRenderer.invoke('setup:pick', cur),

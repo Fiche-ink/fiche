@@ -74,7 +74,8 @@ function record({ before, after, st, model, ms, label }) {
   };
   recent.unshift(r); if (recent.length > 200) recent.pop();
   const d = (data.days[day(at)] ||= { before: 0, after: 0, requests: 0, imaged: 0 });
-  d.before += before; d.after += after; d.requests++; d.imaged += r.imaged;
+  d.before += before; d.after += after; d.requests++; d.imaged += r.imaged; // 11-18: pages drawn for the first time (not every page re-sent each turn), and their pixels.
+  d.pages = (d.pages || 0) + (st?.drawn || 0); d.px = (d.px || 0) + (st?.drawnPx || 0);
   if (r.conv) {
     const s = (data.sessions[r.conv] ||= { first: at, last: at, before: 0, after: 0, requests: 0, imaged: 0, lastBefore: 0, lastAfter: 0 });
     s.last = at; s.before += before; s.after += after; s.requests++; s.imaged += r.imaged; s.lastBefore = before; s.lastAfter = after; s.model = r.model; s.pages = r.images; if (label) if (label) s.label = label;
@@ -96,8 +97,18 @@ function summary() {
     days14.push({ day: k, saved: d ? Math.max(0, d.before - d.after) : 0, before: d?.before || 0, after: d?.after || 0 });
   }
   const sessions = Object.entries(data.sessions).sort((a, b) => b[1].last - a[1].last).slice(0, 30).map(([id, s]) => ({ id, ...s }));
+  // Lifetime totals for the open-beta card and the early-tester table (days kept: 90).
+  const allDays = Object.keys(data.days), total = allDays.reduce((a, k) => { const d = data.days[k];
+    return { requests: a.requests + (d.requests || 0), imaged: a.imaged + (d.imaged || 0), pages: a.pages + (d.pages || 0), px: a.px + (d.px || 0) }; }, { requests: 0, imaged: 0, pages: 0, px: 0 });
+  const activeDays = allDays.filter(k => (data.days[k].requests || 0) > 0).length;
+  // Last 7 days (today included): pixels drawn for the weekly usage report.
+  const week = { px: 0, pages: 0, requests: 0 };
+  for (let i = 0; i < 7; i++) {
+    const d = data.days[day(Date.now() - i * 864e5)];
+    if (d) { week.px += d.px || 0; week.pages += d.pages || 0; week.requests += d.requests || 0; }
+  }
   return {
-    estimate: true,
+    estimate: true, total, activeDays, week,
     today: sum(Object.keys(data.days).filter(k => k === today)),
     month: { name: month, ...sum(Object.keys(data.days).filter(k => k.startsWith(month))) },
     days14, sessions, recent: recent.slice(0, 50), last: recent[0] || null,

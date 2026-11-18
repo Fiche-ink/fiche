@@ -1,10 +1,11 @@
 // fiche PC client: frameless window over ui/, tray, local proxy, Claude Code connection.
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell, dialog, Notification } = require('electron');
+const { app, BrowserWindow, Tray, safeStorage, Menu, ipcMain, nativeImage, shell, dialog, Notification } = require('electron');
 const fs = require('fs'), path = require('path');
 const { createProxy, PORT } = require('./proxy');
 const claude = require('./claude');
 const server = require('./server');
 const engine = require('./engine');
+const account = require('./account');
 const meter = require('./meter');
 const net = require('./net');
 const startup = require('./startup');
@@ -20,8 +21,16 @@ if (!app.requestSingleInstanceLock()) { app.quit(); return; }
 // ---- config (userData/config.json) ----
 const CFG_FILE = () => path.join(app.getPath('userData'), 'config.json');
 let cfg = { proxyOn: true, connected: false, upstream: null, shareSignals: true };
-function loadCfg() { try { cfg = { ...cfg, ...JSON.parse(fs.readFileSync(CFG_FILE(), 'utf8')) }; } catch { } }
+function loadCfg() {
+  try { cfg = { ...cfg, ...JSON.parse(fs.readFileSync(CFG_FILE(), 'utf8')) }; } catch { }
+  // 11-18: "사용 통계 보내기" became the single "데이터 기여" switch.
+  if (typeof cfg.contrib !== 'boolean') cfg.contrib = cfg.shareSignals !== false;
+  delete cfg.shareSignals; delete cfg.installToken;
+}
 function saveCfg() { fs.mkdirSync(path.dirname(CFG_FILE()), { recursive: true }); fs.writeFileSync(CFG_FILE(), JSON.stringify(cfg, null, 2)); }
+// UI language: chosen in the installer (config.json "lang"), else the Windows display language.
+const lang = () => cfg.lang === 'en' || cfg.lang === 'ko' ? cfg.lang : (app.getLocale().toLowerCase().startsWith('ko') ? 'ko' : 'en');
+const T = (ko, en) => lang() === 'en' ? en : ko;
 
 const proxy = createProxy(() => cfg, async () => ({ version: app.getVersion(), store: startup.isStore, startup: await startup.get() }));
 let proxyError = null, win = null, tray = null, quitting = false;
@@ -48,14 +57,15 @@ function createWindow() {
 
 function showWindow() { if (!win) createWindow(); win.show(); win.focus(); }
 
+const trayMenu = () => Menu.buildFromTemplate([
+    { label: T('fiche 열기', 'Open fiche'), click: showWindow },
+    { type: 'separator' },
+    { label: T('종료', 'Quit'), click: () => { quitting = true; app.quit(); } },
+  ]);
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
   tray.setToolTip('fiche');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'fiche 열기', click: showWindow },
-    { type: 'separator' },
-    { label: '종료', click: () => { quitting = true; app.quit(); } },
-  ]));
+  tray.setContextMenu(trayMenu());
   tray.on('click', showWindow);
 }
 
@@ -66,7 +76,7 @@ async function status() {
     version: app.getVersion(), port: PORT, proxyOn: cfg.proxyOn, proxyListening: !proxyError, proxyError,
     connected, claudeError, claudeFound: claudeInstalled(), autoConnect: cfg.autoConnect !== false, settingsFile: claude.FILE, upstream: cfg.upstream || 'https://api.anthropic.com',
     autostart: (await startup.get()).on, store: startup.isStore, server: { base: server.BASE, ...server.lastStatus() },
-    stats: proxy.stats, engine: engine.info(), shareSignals: cfg.shareSignals !== false,
+    stats: proxy.stats, engine: engine.info(), contrib: cfg.contrib !== false, plan: cfg.plan || null, account: account.info(), limits: proxy.limits(),
   };
 }
 
@@ -101,8 +111,8 @@ function autoConnect() {
   try { if (win && !win.isDestroyed()) win.webContents.send('claude:update', true); } catch { }
   try {
     if (Notification.isSupported()) new Notification({
-      title: 'Claude Code 자동 연결', icon: ICON,
-      body: '자동으로 연결됐어요. 열려 있는 Claude Code 창은 다시 시작해야 적용돼요.',
+      title: T('Claude Code 자동 연결', 'Claude Code connected'), icon: ICON,
+      body: T('자동으로 연결됐습니다. 열려 있는 Claude Code 창은 다시 시작해야 적용됩니다.', 'fiche connected automatically. Claude Code windows that are already open pick it up after a restart.'),
     }).show();
   } catch { }
 }
@@ -119,16 +129,43 @@ ipcMain.handle('claude:set', (_e, on) => { cfg.autoConnect = !!on;
   try { setClaude(!!on); return status(); }
   catch (e) { dialog.showErrorBox('fiche', e.message); return status(); }
 });
-ipcMain.handle('signals:set', (_e, on) => { cfg.shareSignals = !!on; engine.setup(cfg); saveCfg(); return status(); });
+ipcMain.on('lang:get', e => { e.returnValue = lang(); });
+ipcMain.handle('lang:set', (_e, l) => {
+  if (l !== 'ko' && l !== 'en') return lang();
+  cfg.lang = l; saveCfg(); if (tray) tray.setContextMenu(trayMenu());
+  if (win && !win.isDestroyed()) win.webContents.reload();
+  return lang();
+});
+ipcMain.handle('contrib:set', async (_e, on) => {
+  cfg.contrib = !!on; saveCfg(); engine.setup(cfg, account.key());
+  if (account.signedIn()) await account.setProfile({ contrib: cfg.contrib }).catch(() => {});
+  return status();
+});
+// Plan is asked once after sign-in (handoff 4.3); film sizes are fitted to real plans.
+ipcMain.handle('plan:set', async (_e, plan) => {
+  if (!['pro', 'max5', 'max10'].includes(plan)) return status();
+  cfg.plan = plan; saveCfg();
+  if (account.signedIn()) await account.setProfile({ plan }).catch(() => {});
+  return status();
+});
+ipcMain.handle('account:signin', async () => {
+  try { await account.signIn(url => shell.openExternal(url)); }
+  catch (e) { return { ...(await status()), signInError: String(e?.message || e) }; }
+  await afterSignIn();
+  return status();
+});
+ipcMain.handle('account:cancel', () => { account.cancelSignIn(); return status(); });
+ipcMain.handle('account:signout', async () => { await account.signOut(); engine.setToken(null); return status(); });
+ipcMain.handle('account:refresh', async () => { await account.refresh(true).catch(() => {}); return status(); });
 ipcMain.handle('stats:get', () => meter.summary());
 ipcMain.handle('netlog:get', () => net.list());
 net.on('sent', e => { try { if (win && !win.isDestroyed()) win.webContents.send('netlog:update', e); } catch { } });
 // Every compressed request is pushed to the window so the home screen can show it live.
-meter.on('update', r => { try { if (tray) { const t = meter.summary().today; tray.setToolTip(t.before > t.after ? 'fiche · 오늘 ' + (t.before - t.after).toLocaleString('ko-KR') + ' 토큰 아꼈어요' : 'fiche'); } } catch { } try { if (win && !win.isDestroyed()) win.webContents.send('stats:update', r); } catch { } });
+meter.on('update', r => { try { if (tray) { const t = meter.summary().today; tray.setToolTip(t.before > t.after ? T('fiche · 오늘 ' + (t.before - t.after).toLocaleString('ko-KR') + ' 토큰을 아꼈습니다', 'fiche · ' + (t.before - t.after).toLocaleString('en-US') + ' tokens saved today') : 'fiche'); } } catch { } try { if (win && !win.isDestroyed()) win.webContents.send('stats:update', r); } catch { } });
 ipcMain.handle('autostart:set', async (_e, on) => {
   const r = await startup.set(!!on);
   if (on && !r.on && r.state === 'DisabledByUser')
-    dialog.showMessageBox(win, { type: 'info', title: 'fiche', message: '시작 프로그램에서 fiche를 꺼 두셨어요.', detail: 'Windows 설정 > 앱 > 시작 프로그램에서 다시 켜 주세요.' });
+    dialog.showMessageBox(win, { type: 'info', title: 'fiche', message: T('Windows 시작 프로그램에서 fiche가 꺼져 있습니다.', 'fiche is turned off in Startup apps.'), detail: T('Windows 설정 > 앱 > 시작 프로그램에서 다시 켜 주세요.', 'Turn it back on in Windows Settings > Apps > Startup.') });
   return status();
 });
 ipcMain.handle('open:external', (_e, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); });
@@ -146,20 +183,44 @@ app.on('before-quit', () => {
   if (cfg.connected) { try { claude.disconnect(PROXY_URL, cfg.upstream); } catch { } }
 });
 
+// After sign-in (or at start when already signed in): hand the key to the engine, push the
+// settings the server keeps (plan, data contribution), refresh the film balance.
+async function afterSignIn() {
+  engine.setToken(account.key());
+  const patch = { contrib: cfg.contrib !== false };
+  if (cfg.plan) patch.plan = cfg.plan;
+  await account.setProfile(patch).catch(() => {});
+  await account.refresh(true).catch(() => {});
+  reportUsage();
+}
+// Every 6 hours, only while data contribution is on: plan, pixels drawn in the last 7 days
+// and Claude's own limit readings, so film sizes can be fitted to real plans (handoff 4.3).
+let lastReport = 0;
+function reportUsage() {
+  if (!account.signedIn() || cfg.contrib === false) return;
+  if (Date.now() - lastReport < 5.5 * 3600e3) return;
+  lastReport = Date.now();
+  const s = meter.summary();
+  account.report({ plan: cfg.plan || null, week_px: s.week?.px || 0, limits: proxy.limits(), app: { day_px: s.today?.px || 0 } }).catch(() => {});
+}
+
 app.whenReady().then(async () => {
   if (process.platform === 'win32') app.setAppUserModelId('ink.fiche.desktop');
   loadCfg();
   // First start after install: apply the installer's "start with Windows" choice.
   const auto = process.argv.find(x => x.startsWith('--autostart='));
   if (auto) startup.set(auto.endsWith('=1')).catch(() => {});
-  // OBT: engine paths, judge URL, anonymous install token, signal opt-out flag.
+  // Engine paths, judge URL, the signed-in account's key, data contribution flag.
+  account.init(app.getPath('userData'), safeStorage);
+  account.on('change', a => { try { if (win && !win.isDestroyed()) win.webContents.send('account:update', a); } catch { } });
   meter.init(app.getPath('userData'));
-  try { engine.setup(cfg); saveCfg(); engine.load().catch(() => {}); } catch (e) { console.error('engine setup', e); }
+  try { engine.setup(cfg, account.key()); saveCfg(); engine.load().catch(() => {}); } catch (e) { console.error('engine setup', e); }
   try { await proxy.listen(); }
-  catch (e) { proxyError = e.code === 'EADDRINUSE' ? `포트 ${PORT}를 다른 프로그램이 쓰고 있어요.` : String(e.message || e); }
+  catch (e) { proxyError = e.code === 'EADDRINUSE' ? T(`포트 ${PORT}번을 다른 프로그램이 쓰고 있습니다.`, `Port ${PORT} is used by another program.`) : String(e.message || e); }
   autoConnect();
   setInterval(autoConnect, 30000);
-  server.account().then(r => console.log('fiche server:', r.status));
+  if (account.signedIn()) afterSignIn().catch(() => {});
+  setInterval(reportUsage, 6 * 3600e3);
   createTray();
   createWindow();
 });

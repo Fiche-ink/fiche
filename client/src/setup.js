@@ -119,13 +119,28 @@ function cleanEnv() {
   return env;
 }
 
+// ---- language (shared with the app through userData/config.json) ----
+const CFG_PATH = () => path.join(app.getPath('userData'), 'config.json');
+function readCfg() { try { return JSON.parse(fs.readFileSync(CFG_PATH(), 'utf8')); } catch { return {}; } }
+function savedLang() {
+  const l = readCfg().lang;
+  if (l === 'ko' || l === 'en') return l;
+  return app.getLocale().toLowerCase().startsWith('ko') ? 'ko' : 'en';
+}
+function writeLang(l) {
+  if (l !== 'ko' && l !== 'en') return;
+  try { fs.mkdirSync(path.dirname(CFG_PATH()), { recursive: true }); fs.writeFileSync(CFG_PATH(), JSON.stringify({ ...readCfg(), lang: l }, null, 2)); } catch (e) { console.error('lang save', e); }
+}
+let setupLang = null;
+const T = (ko, en) => (setupLang || savedLang()) === 'en' ? en : ko;
+
 async function runSetup() {
   app.setAppUserModelId(AUMID);
   await app.whenReady();
   const existing = await installedDir();
   const win = new BrowserWindow({
-    width: 600, height: 580, resizable: false, maximizable: false, frame: false, show: false,
-    backgroundColor: '#f6f1ea', title: 'fiche 설치', icon: path.join(__dirname, 'assets', 'icon.png'),
+    width: 600, height: 620, resizable: false, maximizable: false, frame: false, show: false,
+    backgroundColor: '#f6f1ea', title: T('fiche 설치', 'Install fiche'), icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'setup-preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
   win.removeMenu();
@@ -139,21 +154,23 @@ async function runSetup() {
 
   let installed = null, busy = false;
   ipcMain.once('setup:ready', reveal);
+  ipcMain.on('setup:lang', e => { e.returnValue = setupLang || savedLang(); });
+  ipcMain.handle('setup:setLang', (_e, l) => { if (l === 'ko' || l === 'en') setupLang = l; return setupLang; });
   ipcMain.handle('setup:info', () => ({ version: app.getVersion(), dir: existing || defaultDir(), update: !!existing }));
   ipcMain.handle('setup:pick', async (_e, cur) => {
-    const r = await dialog.showOpenDialog(win, { title: '설치할 폴더', defaultPath: cur, properties: ['openDirectory', 'createDirectory'] });
+    const r = await dialog.showOpenDialog(win, { title: T('설치할 폴더', 'Install folder'), defaultPath: cur, properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return null;
     const p = r.filePaths[0];
     // Picking a parent such as D:\Apps installs into D:\Apps\fiche.
     return /[\\/]fiche$/i.test(p) ? p : path.join(p, 'fiche');
   });
   ipcMain.handle('setup:install', async (_e, o) => {
-    if (busy) return { error: '이미 설치하는 중이에요.' };
+    if (busy) return { error: T('이미 설치가 진행 중입니다.', 'Already installing.') };
     busy = true;
     try {
       const dir = path.resolve(String(o.dir || defaultDir()));
       const src = path.dirname(process.execPath);
-      if (dir.toLowerCase() === src.toLowerCase()) throw new Error('설치 파일이 풀린 폴더에는 설치할 수 없어요.');
+      if (dir.toLowerCase() === src.toLowerCase()) throw new Error(T('설치 파일이 풀린 폴더에는 설치할 수 없습니다.', 'Cannot install into the folder the installer runs from.'));
       const send = (done, total) => { if (!win.isDestroyed()) win.webContents.send('setup:progress', { done, total }); };
       send(0, 1);
       await stopInstalled(dir);
@@ -164,6 +181,7 @@ async function runSetup() {
       shortcut(desktopLnk(), dir, !!o.desktop);
       shortcut(startMenuLnk(), dir, !!o.startMenu);
       installed = { dir, autostart: !!o.autostart };
+      writeLang(setupLang || savedLang());
       return { ok: true };
     } catch (e) {
       return { error: String(e && e.message || e) };
@@ -196,9 +214,9 @@ async function runUninstall() {
   let wipe = false;
   if (!process.env.FICHE_UNINSTALL_YES) {
     const r = await dialog.showMessageBox({
-      type: 'question', title: 'fiche 제거', message: 'fiche를 제거할까요?',
-      detail: dir, checkboxLabel: '사용 기록과 설정도 지우기', checkboxChecked: false,
-      buttons: ['제거', '취소'], defaultId: 0, cancelId: 1, noLink: true,
+      type: 'question', title: T('fiche 제거', 'Uninstall fiche'), message: T('fiche를 제거하시겠습니까?', 'Remove fiche?'),
+      detail: dir, checkboxLabel: T('사용 기록과 설정도 지우기', 'Also delete usage history and settings'), checkboxChecked: false,
+      buttons: [T('제거', 'Remove'), T('취소', 'Cancel')], defaultId: 0, cancelId: 1, noLink: true,
     });
     if (r.response !== 0) return app.exit(0);
     wipe = r.checkboxChecked;

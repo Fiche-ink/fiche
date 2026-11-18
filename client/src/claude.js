@@ -11,7 +11,7 @@ const TETHER = 'CLAUDE_CODE_TETHER_LIVE', TETHER_MARK = FILE + '.fiche-tether';
 
 function read() {
   try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); }
-  catch (e) { if (e.code === 'ENOENT') return {}; throw new Error('settings.json을 읽을 수 없어요: ' + e.message); }
+  catch (e) { if (e.code === 'ENOENT') return {}; throw new Error('settings.json: ' + e.message); }
 }
 function write(obj) {
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
