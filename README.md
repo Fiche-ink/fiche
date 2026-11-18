@@ -1,52 +1,80 @@
-# fiche
+<p align="center">
+  <a href="https://fiche.ink">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-dark.svg">
+      <img src=".github/assets/logo-light.svg" alt="fiche" height="44">
+    </picture>
+  </a>
+</p>
 
-fiche is a Windows app that sits between Claude Code and Anthropic and folds old conversation turns into page images so long Claude Code sessions send fewer input tokens.
+<p align="center">
+  <b>A local proxy that turns old Claude Code history into page images, so every request sends fewer input tokens.</b><br>
+  Windows · Claude Pro and Max · free during the open beta
+</p>
 
-## Download
+<p align="center">
+  <a href="https://github.com/fiche-ink/fiche/releases/latest/download/fiche-setup-x64.exe"><b>Download for Windows</b></a> ·
+  <a href="https://fiche.ink">Website</a> ·
+  <a href="https://fiche.ink/demo">Try it in your browser</a> ·
+  <a href="README.ko.md">한국어</a>
+</p>
 
-Windows installers are on the [Releases](https://github.com/fiche-ink/fiche/releases) page of this repository. During the open beta, the installer is unsigned.
+<p align="center">
+  <a href="https://fiche.ink"><img src=".github/assets/site-en.png" alt="fiche.ink: the same text as plain text and as a page image, with the token counts for each" width="860"></a>
+</p>
+
+## Why
+
+Claude Code resends the whole conversation with every request. Long sessions fill up with tool outputs, file dumps and long replies that the model rarely needs word for word again, and they count against your usage limit each time.
+
+fiche sits between Claude Code and Anthropic on your own PC. When a block of history is big enough, it draws that block as a page image the first time it appears. A page of text costs far fewer input tokens as an image than as text, and since each page is drawn once and never changes, the prompt cache keeps working.
+
+- **Bulky history becomes pages.** Long replies, tool outputs and system reminders turn into page images. Heavy tool inputs, such as whole files written with Write, move to local files the model can read again.
+- **Exact text stays text.** Paths, URLs, hashes, IDs and error lines inside a block are kept as plain text next to the image, so nothing that must be copied exactly is left to the model's eyes.
+- **Your login stays yours.** Requests go straight from your PC to Anthropic with your own Claude login. fiche never sees or stores it, and it does not resell Claude access.
+
+## Get started
+
+1. [Download the installer](https://github.com/fiche-ink/fiche/releases/latest/download/fiche-setup-x64.exe) and run it. The installer is unsigned during the beta, so Windows may warn you the first time ([why](https://fiche.ink/download)).
+2. Open fiche and click **Sign in**. Your browser opens; sign in with GitHub or Google.
+3. Keep using Claude Code as usual. fiche connects to it automatically, and the home screen shows how many input tokens each request saved.
+
+Turning fiche off in the app puts Claude Code back exactly as it was.
+
+<p align="center"><img src=".github/assets/installer.png" alt="The fiche installer" width="420"></p>
+
+## Pricing
+
+fiche is free during the open beta. Paid plans start after the beta and will be announced beforehand. Everyone who meets the early tester conditions within 14 days of signing up gets 5 rolls of film at launch. See [Film and pricing](https://fiche.ink/pricing).
+
+## Privacy
+
+Your conversation text never leaves your PC except on its normal way to Anthropic. To decide which blocks become pages, the app sends the fiche judge server a few numbers per block (length, line statistics, character mix) and gets a decision back. With **Data contribution** on, those decisions, outcome signals and a shape-only copy of each block (every letter replaced by its class, such as `a`, `A`, `0`) are kept to improve the judge. Turn it off in Settings and nothing is stored.
+
+Details: [Privacy policy](https://fiche.ink/privacy) · [How we collect data without your text](https://fiche.ink/notice/2026-11-18-shape-data)
 
 ## What is in this repository
 
-Because fiche acts as a local proxy for your Claude Code traffic, this repository publishes the network-facing client source (`client/src`) for inspection:
+Because fiche sees your Claude Code traffic, the network-facing part of the app is published here so you can check it yourself:
 
-- `client/src/proxy.js` — the local proxy that receives requests from Claude Code and forwards them to Anthropic
-- `client/src/net.js` — the single module every fiche request goes through
-- `client/src/engine.js` — loads the local compression engine and attaches its network handler via `setNet()`
-- `client/src/claude.js` — the Claude Code settings writer
-- `client/src/setup.js` — the installer and uninstaller (copies the app, makes shortcuts and the Installed apps entry; no network)
-- `client/src/meter.js` — the savings meter
-- Electron main and preload modules
+| File | What it does |
+|---|---|
+| `client/src/net.js` | The one module every fiche request goes through |
+| `client/src/proxy.js` | The local proxy between Claude Code and Anthropic |
+| `client/src/account.js` | Sign-in and the account calls to `api.fiche.ink` |
+| `client/src/engine.js` | Loads the compression engine and hands it its network function |
+| `client/src/claude.js` | Writes and restores the Claude Code settings |
+| `client/src/setup.js` | Installer and uninstaller (no network) |
+| `client/src/meter.js` | The savings meter |
 
-The compression engine itself is not published in this repository. It ships inside the installed app as `engine/v0.mjs` (readable JavaScript, outside `app.asar`) and runs locally.
+The compression engine itself ships inside the installed app as `engine/v0.mjs` (readable JavaScript, outside `app.asar`). It has no network access of its own.
 
-The engine has no network path of its own: `client/src/engine.js` hands it a `request` function via `setNet()`. The `engine/v0.mjs` file still contains one `fetch` call, which is only the default used when no client attached a handler (fiche's own Linux test rig); the app always replaces it before the first request. It does not import `http`, `https`, `net` or `tls`; its only imports are `fs`, `crypto`, `zlib`, `os` and the canvas library used for drawing pages. It imports only `fs`, `crypto`, `zlib`, `os` and the canvas renderer — no `http`, `https` or `net` — which you can check in `engine/v0.mjs` inside the installed app.
+[VERIFY.md](VERIFY.md) explains how to check every claim above: read the network module, compare the installed app with this source, read the in-app **Sent log**, or decrypt the app's traffic in Wireshark.
 
-## Outbound destinations
+## Feedback
 
-fiche sends network traffic to two hosts, and nothing else:
-
-- **`api.anthropic.com`** — your Claude Code requests after fiche compressed them, sent with your own Claude login headers exactly as Claude Code sent them. fiche does not store or forward those headers anywhere else.
-- **`judge.fiche.ink`** — per-block numbers (length, line stats, character-class shares, entropy, counts) plus salted one-way IDs, and outcome signals (kind of event such as a re-read or failed Edit, tool name, time, and the same salted IDs). No text, code, or file paths are sent. Turning off **사용 통계 보내기** (Send usage stats) stops outcome signals; judge numbers are still sent while compression is on. The salt is fixed per install, so the same block from the same PC always gets the same ID; it cannot be matched across PCs or reversed.
-
-## How to verify
-
-You do not need to trust the summary above. You can inspect the code and live traffic yourself:
-
-1. Read `client/src/net.js` and `client/src/proxy.js`.
-2. Extract `app.asar` from the installed app and diff `src` against `client/src` at the same release tag:
-   ```cmd
-   npx @electron/asar extract "%LOCALAPPDATA%\Programs\fiche\resources\app.asar" fiche-src
-   ```
-3. Check **기록** (History) → **보낸 기록** (Sent log) in the app to see every outbound request and expand the exact bodies sent to fiche servers.
-4. Log TLS keys via `SSLKEYLOGFILE` and decrypt every outbound HTTP body in Wireshark.
-
-Full step-by-step instructions are in [VERIFY.md](VERIFY.md).
+Bugs and questions: [open an issue](https://github.com/fiche-ink/fiche/issues) or write to hello@fiche.ink.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The judge server is not part of this repository.
-
-## Contact
-
-hello@fiche.ink
+The client source in this repository is MIT licensed. See [LICENSE](LICENSE). The judge server is not part of this repository.

@@ -6,7 +6,7 @@ Because a local proxy on that path sees your Claude Code traffic and login heade
 
 ## Where traffic goes
 
-fiche sends requests to two destinations, and nothing else:
+fiche sends requests to three destinations, and nothing else:
 
 ### 1. `api.anthropic.com`
 Your Claude Code requests after fiche compressed them, sent with your own Claude login headers exactly as Claude Code sent them. fiche does not store or forward those headers anywhere else.
@@ -21,13 +21,21 @@ Per-block numbers (length, line stats, character-class shares, entropy, counts) 
 
 The kind of event (such as a re-read or failed Edit), tool name, time, and the same salted IDs.
 
+#### Shape sequences (only with Data contribution on)
+
+Up to 512 characters per block where each character is replaced by its class: Hangul → `g`, lowercase → `a`, uppercase → `A`, digit → `0`, space or tab → `_`, newline → `/`, any symbol → `.`, other scripts → `x`, and a random-looking run → `r`. The original characters are never sent.
+
 #### Never sent
 
 Text, code, and file paths.
 
 #### Settings control
 
-Turning off **사용 통계 보내기** (Send usage stats) stops outcome signals. Judge numbers are still sent while compression is on.
+Turning off **Data contribution** (데이터 기여) in Settings keeps judge requests going, because every block still needs a decision, but the server stores nothing from them for training: no judgments, outcome signals, shape sequences, or usage reports. You can turn it back on at any time.
+
+### 3. `api.fiche.ink`
+
+Your fiche account. Sign-in happens in your browser (GitHub or Google); the app receives its own API key through a one-time code on `127.0.0.1`. The app then reads your film balance and early tester progress, and saves two settings: the Claude plan you picked and the Data contribution switch. While Data contribution is on, every 6 hours it also sends a usage report: that plan, pixels drawn in the last 7 days, and the 5-hour and 7-day usage numbers Claude Code already receives in its response headers.
 
 ## Published client source vs. local engine
 
@@ -39,6 +47,7 @@ The public repository at [github.com/fiche-ink/fiche](https://github.com/fiche-i
 - `claude.js` — the Claude Code settings writer
 - `setup.js` — the installer and uninstaller (copies the app, makes shortcuts and the Installed apps entry; no network)
 - `meter.js` — the savings meter
+- `account.js` — sign-in (browser → loopback → one-time code) and the account calls to `api.fiche.ink`
 - Electron main and preload modules
 
 The compression engine is not published in the repository. It ships inside the installed app as `engine/v0.mjs` (readable JavaScript, outside `app.asar`) and runs locally.
