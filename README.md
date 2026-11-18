@@ -45,7 +45,7 @@ Full step-by-step instructions are in [VERIFY.md](VERIFY.md).
 
 ## License
 
-Source published for inspection; all rights reserved.
+MIT. See [LICENSE](LICENSE). The judge server is not part of this repository.
 
 ## Contact
 
