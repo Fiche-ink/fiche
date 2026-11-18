@@ -45,11 +45,22 @@ Turning fiche off in the app puts Claude Code back exactly as it was.
 
 ## Pricing
 
-fiche is free during the open beta. Paid plans start after the beta and will be announced beforehand. Everyone who meets the early tester conditions within 14 days of signing up gets 5 rolls of film at launch. See [Film and pricing](https://fiche.ink/pricing).
+Free during the open beta, no card needed. Paid plans start after the beta and will be announced first.
+
+| After the beta | Price | Film |
+|---|---|---|
+| Sign-up | Free | 50 frames, once |
+| Film pack | $5 | 2 rolls |
+| Film pack | $10 | 5 rolls |
+| Film pack | $20 | 10 rolls |
+
+1 roll = 100 frames = $2, about a month of Claude Pro. Bought film never expires.
+
+Early testers who meet the conditions within 14 days of signing up get **5 rolls** at launch. Details: [Film and pricing](https://fiche.ink/pricing).
 
 ## Privacy
 
-Your conversation text never leaves your PC except on its normal way to Anthropic. To decide which blocks become pages, the app sends the fiche judge server a few numbers per block (length, line statistics, character mix) and gets a decision back. With **Data contribution** on, those decisions, outcome signals and a shape-only copy of each block (every letter replaced by its class, such as `a`, `A`, `0`) are kept to improve the judge. Turn it off in Settings and nothing is stored.
+Your conversation text never leaves your PC except on its normal way to Anthropic. To decide which blocks become pages, the app sends the fiche judge server a few numbers per block (length, line statistics, character mix) and gets a decision back. With **Data contribution** on, those decisions, outcome signals and a shape-only copy of each block (every letter replaced by its class, such as `a`, `A`, `0`) are kept to improve the judge. Turn it off in Settings and nothing is stored for training.
 
 Details: [Privacy policy](https://fiche.ink/privacy) · [How we collect data without your text](https://fiche.ink/notice/2026-11-18-shape-data)
 

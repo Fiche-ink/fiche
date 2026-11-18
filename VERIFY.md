@@ -41,18 +41,20 @@ Your fiche account. Sign-in happens in your browser (GitHub or Google); the app 
 
 The public repository at [github.com/fiche-ink/fiche](https://github.com/fiche-ink/fiche) contains the network-facing client source in `client/src`:
 
-- `proxy.js` — the local proxy
-- `net.js` — the single module every fiche request goes through
-- `engine.js` — attaches the client network handler to the compression engine via `setNet()`
-- `claude.js` — the Claude Code settings writer
-- `setup.js` — the installer and uninstaller (copies the app, makes shortcuts and the Installed apps entry; no network)
-- `meter.js` — the savings meter
-- `account.js` — sign-in (browser → loopback → one-time code) and the account calls to `api.fiche.ink`
-- Electron main and preload modules
+| Module | Role |
+|---|---|
+| `proxy.js` | Local proxy |
+| `net.js` | Single module every fiche request goes through |
+| `engine.js` | Attaches the client network handler to the compression engine via `setNet()` |
+| `claude.js` | Claude Code settings writer |
+| `setup.js` | Installer and uninstaller (copies the app, makes shortcuts and the Installed apps entry; no network) |
+| `meter.js` | Savings meter |
+| `account.js` | Sign-in (browser → loopback → one-time code) and account calls to `api.fiche.ink` |
+| Electron main / preload | Main process and preload modules |
 
 The compression engine is not published in the repository. It ships inside the installed app as `engine/v0.mjs` (readable JavaScript, outside `app.asar`) and runs locally.
 
-The engine has no network path of its own: the client hands it a `request` function via `setNet()` (`client/src/engine.js`). If you open `engine/v0.mjs`, you will see one `fetch` call in the file. That `fetch` is only the default used when no client attached a handler (fiche's own Linux test rig); the app always replaces it before the first request. It does not import `http`, `https`, `net` or `tls`; its only imports are `fs`, `crypto`, `zlib`, `os` and the canvas library used for drawing pages. It imports only `fs`, `crypto`, `zlib`, `os` and the canvas renderer — no `http`, `https` or `net` — which you can check in `engine/v0.mjs` inside the installed app.
+The engine has no network path of its own: the client hands it a `request` function via `setNet()` (`client/src/engine.js`). If you open `engine/v0.mjs`, you will see one `fetch` call in the file. That `fetch` is only the default used when no client attached a handler (fiche's own Linux test rig); the app always replaces it before the first request. It imports only `fs`, `crypto`, `zlib`, `os`, and the canvas library used for drawing pages — never `http`, `https`, `net`, or `tls` — which you can check directly in `engine/v0.mjs` inside the installed app.
 
 ## Four ways to verify
 
