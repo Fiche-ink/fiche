@@ -18,6 +18,7 @@ const api = {
   refreshAccount: () => ipcRenderer.invoke('account:refresh'),
   onAccount: cb => ipcRenderer.on('account:update', (_e, a) => cb(a)),
   stats: () => ipcRenderer.invoke('stats:get'),
+  latestPage: () => ipcRenderer.invoke('page:latest'),
   netlog: () => ipcRenderer.invoke('netlog:get'),
   onNetlog: cb => ipcRenderer.on('netlog:update', (_e, r) => cb(r)),
   onStats: cb => ipcRenderer.on('stats:update', (_e, r) => cb(r)),

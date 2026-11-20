@@ -29,7 +29,11 @@ function connect(url) {
   const prev = s.env?.ANTHROPIC_BASE_URL;
   if (prev === url) return { prev: undefined };
   s.env = { ...(s.env || {}), ANTHROPIC_BASE_URL: url };
-  if (s.env[TETHER] === undefined) { s.env[TETHER] = '0'; fs.writeFileSync(TETHER_MARK, ''); }
+  if (s.env[TETHER] === undefined) {
+    s.env[TETHER] = '0';
+    fs.mkdirSync(path.dirname(FILE), { recursive: true });
+    fs.writeFileSync(TETHER_MARK, '');
+  }
   write(s);
   return { prev: prev || null };
 }

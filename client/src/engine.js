@@ -87,4 +87,31 @@ async function compress(buf) {
 function flush() { return mod?.flushSignals ? mod.flushSignals().catch(() => {}) : Promise.resolve(); }
 setInterval(flush, 5 * 60e3).unref?.();
 
-module.exports = { flush, setup, setToken, compress, load, stats, info: () => ({ judge: JUDGE_URL, root: root(), loaded: !!mod, lastError, signals: fs.existsSync(SIGNAL_FLAG) }) };
+// Most recently rendered page PNG from the local cache (stays on this PC; never sent to fiche).
+function latestPage() {
+  const dir = path.join(CACHE, 'v0', 'png');
+  try {
+    let best = null;
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const full = path.join(dir, name);
+      const st = fs.statSync(full);
+      if (st.size > 4 * 1024 * 1024) continue;
+      if (!best || st.mtimeMs > best.mtimeMs) best = { full, mtimeMs: st.mtimeMs };
+    }
+    if (!best) return null;
+    const pages = JSON.parse(fs.readFileSync(best.full, 'utf8'));
+    const p = Array.isArray(pages) ? pages[0] : null;
+    if (!p?.b64 || !p.w || !p.h) return null;
+    return {
+      dataUrl: 'data:image/png;base64,' + p.b64,
+      width: p.w, height: p.h,
+      tokens: Math.ceil(p.w / 28) * Math.ceil(p.h / 28) + 3,
+      bytes: Math.floor((p.b64.length * 3) / 4),
+      pages: pages.length,
+      at: best.mtimeMs,
+    };
+  } catch { return null; }
+}
+
+module.exports = { flush, setup, setToken, compress, load, latestPage, stats, info: () => ({ judge: JUDGE_URL, root: root(), loaded: !!mod, lastError, signals: fs.existsSync(SIGNAL_FLAG) }) };

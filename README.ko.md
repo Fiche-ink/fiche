@@ -7,10 +7,11 @@
   </a>
 </p>
 
-<p align="center"><b>Claude Code의 지난 대화를 페이지 이미지로 바꿔 입력 토큰을 줄이는 Windows 앱</b></p>
+<p align="center"><b>Claude Code의 지난 대화를 페이지 이미지로 바꿔 입력 토큰을 줄이는 로컬 프록시</b><br>Windows·macOS·Linux·WSL2</p>
 
 <p align="center">
   <a href="https://github.com/fiche-ink/fiche/releases/latest/download/fiche-setup-x64.exe"><b>Windows용 다운로드</b></a> ·
+  <a href="https://fiche.ink/ko/download#cli">macOS·Linux·WSL2</a> ·
   <a href="https://fiche.ink/ko/">fiche.ink</a> ·
   <a href="https://fiche.ink/ko/demo">라이브 데모</a> ·
   <a href="README.md">English</a>
@@ -34,8 +35,24 @@ fiche는 PC에서 로컬 프록시로 돌면서 그 앞부분을 정리합니다
 ## 시작하기
 
 1. [설치 파일](https://github.com/fiche-ink/fiche/releases/latest/download/fiche-setup-x64.exe)을 받아 실행합니다. 베타 동안은 코드 서명이 없어 Windows가 처음 실행할 때 경고를 띄울 수 있습니다.
-2. 앱에서 **로그인**합니다. GitHub이나 Google 계정을 씁니다.
-3. 끝입니다. Claude Code가 설치돼 있으면 fiche가 알아서 연결합니다. fiche를 끄면 Claude Code 설정이 원래대로 돌아갑니다.
+2. 앱에서 **로그인**합니다. 오픈 베타에서는 GitHub 계정을 씁니다.
+3. 끝입니다. Claude Code가 설치돼 있으면 fiche가 알아서 연결합니다. 방금 그린 페이지 이미지는 앱 홈에서 바로 열어볼 수 있고, fiche를 끄면 Claude Code 설정이 원래대로 돌아갑니다.
+
+**Windows**에서는 터미널로도 설치할 수 있습니다. 탐색기에서 실행하는 파일이 없어 SmartScreen 경고가 뜨지 않습니다.
+
+```powershell
+irm https://fiche.ink/install.ps1 | iex
+```
+
+**macOS와 Linux, WSL2 안에서는** 앱 대신 명령줄 클라이언트를 씁니다.
+
+```sh
+curl -fsSL https://fiche.ink/install.sh | sh
+fiche login
+fiche status
+```
+
+프록시와 엔진, 렌더러는 같고 창만 없습니다. launchd 또는 systemd로 로그인할 때 시작하고, `fiche uninstall`이 Claude Code 설정을 되돌립니다. 코드 서명은 없으며, `install.sh`가 릴리스와 함께 공개된 `SHA256SUMS`로 내려받은 파일을 검증합니다.
 
 <p align="center"><img src=".github/assets/installer.png" alt="fiche 설치 화면" width="420"></p>
 

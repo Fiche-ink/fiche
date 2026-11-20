@@ -58,8 +58,9 @@ let pending = null;
 function signIn(openExternal) {
   if (pending) { openExternal(pending.url); return pending.done; }
   const appState = crypto.randomBytes(18).toString('base64url');
-  let srv, timer;
+  let srv, timer, rejectPending = null;
   const done = new Promise((ok, fail) => {
+    rejectPending = fail;
     srv = http.createServer(async (req, res) => {
       const u = new URL(req.url, 'http://127.0.0.1');
       if (u.pathname !== '/callback') { res.writeHead(404); return res.end(); }
@@ -92,11 +93,11 @@ function signIn(openExternal) {
     });
     timer = setTimeout(() => fail(new Error('timeout')), 10 * 60e3);
   }).finally(() => { clearTimeout(timer); try { srv.close(); } catch { } pending = null; });
-  pending = { done, url: null };
+  pending = { done, url: null, cancel: () => rejectPending?.(new Error('cancelled')) };
   return done.then(async v => { await refresh(true).catch(() => { }); emitter.emit('change', info()); return v; });
 }
 
-function cancelSignIn() { if (pending) pending.done.catch(() => { }); }
+function cancelSignIn() { if (pending) pending.cancel(); }
 
 async function signOut() {
   state = { key: null, email: null, accountId: null }; me = null; save();

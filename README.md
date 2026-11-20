@@ -9,11 +9,12 @@
 
 <p align="center">
   <b>A local proxy that turns old Claude Code history into page images, so every request sends fewer input tokens.</b><br>
-  Windows · Claude Pro and Max · free during the open beta
+  Windows, macOS, Linux and WSL2 · Claude Pro and Max · free during the open beta
 </p>
 
 <p align="center">
   <a href="https://github.com/fiche-ink/fiche/releases/latest/download/fiche-setup-x64.exe"><b>Download for Windows</b></a> ·
+  <a href="https://fiche.ink/download#cli">macOS, Linux, WSL2</a> ·
   <a href="https://fiche.ink">Website</a> ·
   <a href="https://fiche.ink/demo">Try it in your browser</a> ·
   <a href="README.ko.md">한국어</a>
@@ -36,10 +37,26 @@ fiche sits between Claude Code and Anthropic on your own PC. When a block of his
 ## Get started
 
 1. [Download the installer](https://github.com/fiche-ink/fiche/releases/latest/download/fiche-setup-x64.exe) and run it. The installer is unsigned during the beta, so Windows may warn you the first time ([why](https://fiche.ink/download)).
-2. Open fiche and click **Sign in**. Your browser opens; sign in with GitHub or Google.
-3. Keep using Claude Code as usual. fiche connects to it automatically, and the home screen shows how many input tokens each request saved.
+2. Open fiche and click **Sign in**. Your browser opens; sign in with GitHub.
+3. Keep using Claude Code as usual. fiche connects automatically, shows the tokens saved per request, and lets you open the latest rendered page image right from the home screen.
 
 Turning fiche off in the app puts Claude Code back exactly as it was.
+
+On **Windows** you can also install from a terminal, which avoids the SmartScreen warning because nothing is run from Explorer:
+
+```powershell
+irm https://fiche.ink/install.ps1 | iex
+```
+
+On **macOS, Linux and inside WSL2** there is a command line client instead of the app:
+
+```sh
+curl -fsSL https://fiche.ink/install.sh | sh
+fiche login
+fiche status
+```
+
+Same proxy, engine and renderer, no window. It starts at login through launchd or systemd, and `fiche uninstall` puts your Claude Code settings back. Nothing is signed by a certificate; `install.sh` checks each download against the `SHA256SUMS` published with the release.
 
 <p align="center"><img src=".github/assets/installer.png" alt="The fiche installer" width="420"></p>
 
@@ -77,6 +94,11 @@ Because fiche sees your Claude Code traffic, the network-facing part of the app 
 | `client/src/claude.js` | Writes and restores the Claude Code settings |
 | `client/src/setup.js` | Installer and uninstaller (no network) |
 | `client/src/meter.js` | The savings meter |
+| `client/cli/daemon.js` | The same client without a window: what the macOS, Linux and WSL2 build runs |
+| `client/cli/fiche.js` | The `fiche` command |
+| `client/cli/install.sh` | The installer behind `curl -fsSL https://fiche.ink/install.sh \| sh` |
+| `client/cli/install.ps1` | The Windows installer behind `irm https://fiche.ink/install.ps1 \| iex` |
+| `client/cli/pack.mjs` | Builds the release tarballs, so you can rebuild and compare |
 
 The compression engine itself ships inside the installed app as `engine/v0.mjs` (readable JavaScript, outside `app.asar`). It has no network access of its own.
 

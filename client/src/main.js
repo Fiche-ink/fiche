@@ -158,10 +158,34 @@ ipcMain.handle('account:cancel', () => { account.cancelSignIn(); return status()
 ipcMain.handle('account:signout', async () => { await account.signOut(); engine.setToken(null); return status(); });
 ipcMain.handle('account:refresh', async () => { await account.refresh(true).catch(() => {}); return status(); });
 ipcMain.handle('stats:get', () => meter.summary());
+ipcMain.handle('page:latest', () => engine.latestPage());
 ipcMain.handle('netlog:get', () => net.list());
 net.on('sent', e => { try { if (win && !win.isDestroyed()) win.webContents.send('netlog:update', e); } catch { } });
 // Every compressed request is pushed to the window so the home screen can show it live.
-meter.on('update', r => { try { if (tray) { const t = meter.summary().today; tray.setToolTip(t.before > t.after ? T('fiche · 오늘 ' + (t.before - t.after).toLocaleString('ko-KR') + ' 토큰을 아꼈습니다', 'fiche · ' + (t.before - t.after).toLocaleString('en-US') + ' tokens saved today') : 'fiche'); } } catch { } try { if (win && !win.isDestroyed()) win.webContents.send('stats:update', r); } catch { } });
+meter.on('update', r => {
+  try {
+    if (tray) {
+      const t = meter.summary().today;
+      tray.setToolTip(t.before > t.after ? T('fiche · 오늘 ' + (t.before - t.after).toLocaleString('ko-KR') + ' 토큰을 아꼈습니다', 'fiche · ' + (t.before - t.after).toLocaleString('en-US') + ' tokens saved today') : 'fiche');
+    }
+  } catch { }
+  if (r.saved > 0 && !cfg.firstSavedNotified) {
+    cfg.firstSavedNotified = true; saveCfg();
+    try {
+      if (Notification.isSupported()) {
+        const pct = Math.round((r.saved / (r.before || 1)) * 100);
+        const n = new Notification({
+          title: T('fiche · 첫 요청을 줄였습니다', 'fiche · First request trimmed'), icon: ICON,
+          body: T(`${r.before.toLocaleString('ko-KR')} → ${r.after.toLocaleString('ko-KR')} 토큰 (-${pct}%). 이제 조용히 계속 줄입니다.`,
+            `${r.before.toLocaleString('en-US')} → ${r.after.toLocaleString('en-US')} tokens (-${pct}%). fiche will keep running quietly in the tray.`),
+        });
+        n.on('click', showWindow);
+        n.show();
+      }
+    } catch { }
+  }
+  try { if (win && !win.isDestroyed()) win.webContents.send('stats:update', r); } catch { }
+});
 ipcMain.handle('autostart:set', async (_e, on) => {
   const r = await startup.set(!!on);
   if (on && !r.on && r.state === 'DisabledByUser')
@@ -201,7 +225,7 @@ function reportUsage() {
   if (Date.now() - lastReport < 5.5 * 3600e3) return;
   lastReport = Date.now();
   const s = meter.summary();
-  account.report({ plan: cfg.plan || null, week_px: s.week?.px || 0, limits: proxy.limits(), app: { day_px: s.today?.px || 0 } }).catch(() => {});
+  account.report({ plan: cfg.plan || null, week_px: s.week?.px || 0, limits: proxy.limits(), app: app.getVersion() }).catch(() => {});
 }
 
 app.whenReady().then(async () => {

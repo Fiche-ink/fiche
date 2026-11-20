@@ -7,6 +7,11 @@
 //
 // `fiche.exe --uninstall` (the UninstallString) reverses that, and `fiche.exe --quit` asks a
 // running copy to quit so files can be replaced during an update.
+//
+// install.ps1 (the `irm https://fiche.ink/install.ps1 | iex` route) does not use the portable
+// installer at all: it unpacks the zip build itself and then runs `fiche.exe --register-install`,
+// which writes the same Installed apps entry and shortcuts as the screen above. Uninstalling is
+// identical either way, because it works from the folder the running exe sits in.
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const ofs = require('original-fs'); // plain fs: copies app.asar as a file, not as a folder
 const path = require('path'), os = require('os');
@@ -121,7 +126,7 @@ function cleanEnv() {
 
 // ---- language (shared with the app through userData/config.json) ----
 const CFG_PATH = () => path.join(app.getPath('userData'), 'config.json');
-function readCfg() { try { return JSON.parse(fs.readFileSync(CFG_PATH(), 'utf8')); } catch { return {}; } }
+function readCfg() { try { return JSON.parse(ofs.readFileSync(CFG_PATH(), 'utf8')); } catch { return {}; } }
 function savedLang() {
   const l = readCfg().lang;
   if (l === 'ko' || l === 'en') return l;
@@ -129,7 +134,7 @@ function savedLang() {
 }
 function writeLang(l) {
   if (l !== 'ko' && l !== 'en') return;
-  try { fs.mkdirSync(path.dirname(CFG_PATH()), { recursive: true }); fs.writeFileSync(CFG_PATH(), JSON.stringify({ ...readCfg(), lang: l }, null, 2)); } catch (e) { console.error('lang save', e); }
+  try { ofs.mkdirSync(path.dirname(CFG_PATH()), { recursive: true }); ofs.writeFileSync(CFG_PATH(), JSON.stringify({ ...readCfg(), lang: l }, null, 2)); } catch (e) { console.error('lang save', e); }
 }
 let setupLang = null;
 const T = (ko, en) => (setupLang || savedLang()) === 'en' ? en : ko;
@@ -207,6 +212,20 @@ async function runSetup() {
   }
 }
 
+// ---- register an install that install.ps1 unpacked ----
+// Same registry entry and shortcuts as the install screen, no window. The app is not started here;
+// install.ps1 does that, so a first run can still carry --autostart=1 like the installer's does.
+async function runRegister() {
+  await app.whenReady();
+  const dir = path.dirname(process.execPath);
+  let bytes = 0;
+  try { bytes = walk(dir).reduce((a, f) => a + f.size, 0); } catch { }
+  await register(dir, bytes);
+  shortcut(startMenuLnk(), dir, true);
+  shortcut(desktopLnk(), dir, process.argv.includes('--desktop'));
+  app.exit(0);
+}
+
 // ---- uninstall ----
 async function runUninstall() {
   await app.whenReady();
@@ -229,12 +248,16 @@ async function runUninstall() {
     const cfg = JSON.parse(ofs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8'));
     claude.disconnect(`http://127.0.0.1:${require('./proxy').PORT}`, cfg.upstream);
   } catch { }
-  // Start-with-Windows entry: Electron names the Run value after the app ID, which this process
-  // has not set, so name it explicitly and also delete the values directly.
-  try { app.setLoginItemSettings({ openAtLogin: false, name: AUMID, args: ['--hidden'] }); } catch { }
-  for (const k of ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
-                   'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'])
-    await reg(['delete', k, '/v', AUMID, '/f']);
+  // Start-with-Windows entry. src/startup.js turns it on without passing a name, and on a real
+  // install the value comes out named after the app ID the app set at startup (checked on a
+  // Windows runner: ink.fiche.desktop), which is why the AUMID is passed here - this process
+  // never set it. The exe name is cleared too, for any build that ran without the app ID.
+  for (const name of [AUMID, 'fiche']) {
+    try { app.setLoginItemSettings({ openAtLogin: false, name, args: ['--hidden'] }); } catch { }
+    for (const k of ['HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+                     'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'])
+      await reg(['delete', k, '/v', name, '/f']);
+  }
   shortcut(desktopLnk(), dir, false);
   shortcut(startMenuLnk(), dir, false);
   await reg(['delete', KEY, '/f']);
@@ -254,6 +277,7 @@ function handles() {
   if (argv.includes('--quit')) { app.requestSingleInstanceLock(); app.quit(); return true; }
   if (process.platform !== 'win32') return false;
   if (argv.includes('--uninstall')) { runUninstall(); return true; }
+  if (argv.includes('--register-install')) { runRegister(); return true; }
   if (process.env.PORTABLE_EXECUTABLE_FILE) { runSetup(); return true; }
   return false;
 }
