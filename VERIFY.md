@@ -94,6 +94,7 @@ The tarball is plain files, so there is nothing to extract first:
 shasum -a 256 fiche-cli-darwin-arm64.tar.gz   # on Linux, use sha256sum; compare with SHA256SUMS
 diff -r ~/.local/share/fiche/current/client  client/src   # shared modules (Windows-only Electron files are only in client/src)
 diff -r ~/.local/share/fiche/current/cli     client/cli   # CLI runtime files (installer and build scripts are only in client/cli)
+```
 
 The only files that are not readable text are `node_modules/@napi-rs/canvas` (the published npm package for your platform that `engine/v0.mjs` uses to render), the three font files under `vendor/`, and the bundled `node` when the installer had to download one from nodejs.org. `fiche log` prints the same sent log the app shows, and `SSLKEYLOGFILE` works the same way.
 
