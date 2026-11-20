@@ -17,13 +17,13 @@ Your Claude Code requests after fiche compressed them, sent with your own Claude
 
 Per-block numbers (length, line stats, character-class shares, entropy, counts) plus salted one-way IDs. The salt is fixed per install, so the same block from the same PC always gets the same ID; it cannot be matched across PCs or reversed.
 
-#### Outcome signals
+#### Outcome signals (only with Data contribution on)
 
 The kind of event (such as a re-read or failed Edit), tool name, time, and the same salted IDs.
 
 #### Shape sequences (only with Data contribution on)
 
-Up to 512 characters per block where each character is replaced by its class: Hangul → `g`, lowercase → `a`, uppercase → `A`, digit → `0`, space or tab → `_`, newline → `/`, any symbol → `.`, other scripts → `x`, and a random-looking run → `r`. The original characters are never sent.
+Up to 512 characters per block where each character is replaced by its class: Hangul → `g`, lowercase → `a`, uppercase → `A`, digit → `0`, space or tab → `_`, newline → `/`, any symbol → `.`, other scripts → `x`, and each character in a random-looking run → `r`. The original characters are never sent.
 
 #### Never sent
 
