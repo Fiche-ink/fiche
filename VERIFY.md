@@ -31,11 +31,11 @@ Text, code, and file paths.
 
 #### Settings control
 
-Turning off **Data contribution** in Settings keeps judge requests going, because every block still needs a decision, but the server stores nothing from them for training: no judgments, outcome signals, shape sequences, or usage reports. You can turn it back on at any time.
+Turning off **Data contribution** in Windows app Settings or with `fiche contrib off` keeps judge requests going, because every block still needs a decision, but the server stores nothing from them for training: no judgments, outcome signals, shape sequences, or usage reports. You can turn it back on at any time.
 
 ### 3. `api.fiche.ink`
 
-Your fiche account. Sign-in happens in your browser (GitHub or Google); the app receives its own API key through a one-time code on `127.0.0.1`. The app then reads your film balance and early tester progress, and saves two settings: the Claude plan you picked and the Data contribution switch. While Data contribution is on, every 6 hours it also sends a usage report: that plan, pixels drawn in the last 7 days, and the 5-hour and 7-day usage numbers Claude Code already receives in its response headers.
+Your fiche account. Sign-in happens in your browser (GitHub or Google); the client receives its own API key through a one-time code on `127.0.0.1`. The client then reads your film balance and early tester progress, and saves two settings: the Claude plan you picked and the Data contribution switch. While Data contribution is on, every 6 hours it also sends a usage report: that plan, pixels drawn in the last 7 days, and the 5-hour and 7-day usage numbers Claude Code already receives in its response headers.
 
 ## Published client source vs. local engine
 
@@ -68,7 +68,7 @@ Two differences from the app are worth knowing. Without Electron there is no `sa
 
 The compression engine is not published in the repository. It ships locally as readable JavaScript at `engine/v0.mjs` (outside `app.asar` in the Windows app, and under `~/.local/share/fiche/current/engine/v0.mjs` in the CLI install).
 
-The engine has no network path of its own: the client hands it a `request` function via `setNet()` (`client/src/engine.js`). If you open `engine/v0.mjs`, you will see one `fetch` call in the file. That `fetch` is only the default used when no client attached a handler (fiche's own Linux test rig); the app always replaces it before the first request. It imports only `fs`, `crypto`, `zlib`, `os`, and the canvas library used for drawing pages — never `http`, `https`, `net`, or `tls` — which you can check directly in `engine/v0.mjs` inside the installed app.
+The engine has no network path of its own: the client hands it a `request` function via `setNet()` (`client/src/engine.js`). If you open `engine/v0.mjs`, you will see one `fetch` call in the file. That `fetch` is only the default used when no client attached a handler (fiche's own Linux test rig); the client always replaces it before the first request. It imports only `fs`, `crypto`, `zlib`, `os`, and the canvas library used for drawing pages — never `http`, `https`, `net`, or `tls` — which you can check directly in `engine/v0.mjs` inside the installed client.
 
 ## Five ways to verify
 
@@ -96,15 +96,15 @@ diff -r ~/.local/share/fiche/current/client  client/src   # shared modules (Wind
 diff -r ~/.local/share/fiche/current/cli     client/cli   # CLI runtime files (installer and build scripts are only in client/cli)
 ```
 
-The only files that are not readable text are `node_modules/@napi-rs/canvas` (the published npm package for your platform that `engine/v0.mjs` uses to render), the three font files under `vendor/`, and the bundled `node` when the installer had to download one from nodejs.org. `fiche log` prints the same sent log the app shows, and `SSLKEYLOGFILE` works the same way.
+The only files that are not readable text are `node_modules/@napi-rs/canvas` (the published npm package for your platform that `engine/v0.mjs` uses to render), the three font files under `vendor/`, and the bundled `node` when the installer had to download one from nodejs.org. `fiche log` prints a summary of the sent log (`fiche log --json` prints full entries), and `SSLKEYLOGFILE` works the same way.
 
 ### 4. Check the sent log
 
-In the Windows app, go to **History** → **Sent log**. On macOS, Linux and WSL2, run `fiche log`. Every outbound request is listed there, and requests to fiche servers show the exact body sent.
+In the Windows app, go to **History** → **Sent log**. On macOS, Linux and WSL2, run `fiche log` for a summary list or `fiche log --json` for full entries. Every outbound request is listed there, and requests to fiche servers show the exact body sent.
 
 ### 5. Capture and decrypt TLS traffic with Wireshark
 
-To inspect live traffic outside the app:
+To inspect live traffic outside the client:
 
 1. Set the environment variable `SSLKEYLOGFILE` to a file path. In the Windows app, quit fiche from the tray icon and start it again so it picks up the variable. On macOS, Linux and WSL2, run `fiche stop` and then start it again with `SSLKEYLOGFILE=/path/to/keys fiche start`.
 2. Open Wireshark, go to **Preferences → Protocols → TLS**, and set **(Pre)-Master-Secret log filename** to that file path.
