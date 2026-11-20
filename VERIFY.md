@@ -31,7 +31,7 @@ Text, code, and file paths.
 
 #### Settings control
 
-Turning off **Data contribution** (데이터 기여) in Settings keeps judge requests going, because every block still needs a decision, but the server stores nothing from them for training: no judgments, outcome signals, shape sequences, or usage reports. You can turn it back on at any time.
+Turning off **Data contribution** in Settings keeps judge requests going, because every block still needs a decision, but the server stores nothing from them for training: no judgments, outcome signals, shape sequences, or usage reports. You can turn it back on at any time.
 
 ### 3. `api.fiche.ink`
 
@@ -66,7 +66,7 @@ The macOS, Linux and WSL2 build runs the same modules with no Electron at all. I
 
 Two differences from the app are worth knowing. Without Electron there is no `safeStorage`, so the account key is a file with `0600` permissions in your config folder instead of being encrypted with your login credentials. And nothing in the release is signed by a certificate: `install.sh` verifies each download against the `SHA256SUMS` file published with the release, and the same hashes are printed in the release notes.
 
-The compression engine is not published in the repository. It ships inside the installed app as `engine/v0.mjs` (readable JavaScript, outside `app.asar`) and runs locally.
+The compression engine is not published in the repository. It ships locally as readable JavaScript at `engine/v0.mjs` (outside `app.asar` in the Windows app, and under `~/.local/share/fiche/current/engine/v0.mjs` in the CLI install).
 
 The engine has no network path of its own: the client hands it a `request` function via `setNet()` (`client/src/engine.js`). If you open `engine/v0.mjs`, you will see one `fetch` call in the file. That `fetch` is only the default used when no client attached a handler (fiche's own Linux test rig); the app always replaces it before the first request. It imports only `fs`, `crypto`, `zlib`, `os`, and the canvas library used for drawing pages — never `http`, `https`, `net`, or `tls` — which you can check directly in `engine/v0.mjs` inside the installed app.
 
@@ -91,22 +91,21 @@ Then diff `fiche-src/src` against `client/src` at that tag. You can also read `e
 The tarball is plain files, so there is nothing to extract first:
 
 ```sh
-shasum -a 256 fiche-cli-darwin-arm64.tar.gz   # compare with SHA256SUMS in the release
-diff -r ~/.local/share/fiche/current/client  client/src   # the app's own modules
-diff -r ~/.local/share/fiche/current/cli     client/cli
-```
+shasum -a 256 fiche-cli-darwin-arm64.tar.gz   # on Linux, use sha256sum; compare with SHA256SUMS
+diff -r ~/.local/share/fiche/current/client  client/src   # shared modules (Windows-only Electron files are only in client/src)
+diff -r ~/.local/share/fiche/current/cli     client/cli   # CLI runtime files (installer and build scripts are only in client/cli)
 
-The only files that are not readable text are `engine/v0.mjs`'s renderer, `node_modules/@napi-rs/canvas` (the published npm package for your platform), and the bundled `node` when the installer had to download one from nodejs.org. `fiche log` prints the same sent log the app shows, and `SSLKEYLOGFILE` works the same way.
+The only files that are not readable text are `node_modules/@napi-rs/canvas` (the published npm package for your platform that `engine/v0.mjs` uses to render), the three font files under `vendor/`, and the bundled `node` when the installer had to download one from nodejs.org. `fiche log` prints the same sent log the app shows, and `SSLKEYLOGFILE` works the same way.
 
-### 4. Check the in-app sent log
+### 4. Check the sent log
 
-Open fiche and go to **기록** (History) → **보낸 기록** (Sent log). Every outbound request is listed there. Requests to fiche servers can be expanded to show the exact body sent.
+In the Windows app, go to **History** → **Sent log**. On macOS, Linux and WSL2, run `fiche log`. Every outbound request is listed there, and requests to fiche servers show the exact body sent.
 
 ### 5. Capture and decrypt TLS traffic with Wireshark
 
 To inspect live traffic outside the app:
 
-1. Set the environment variable `SSLKEYLOGFILE` to a file path, then quit fiche from the tray icon and start it again so it picks up the variable.
+1. Set the environment variable `SSLKEYLOGFILE` to a file path. In the Windows app, quit fiche from the tray icon and start it again so it picks up the variable. On macOS, Linux and WSL2, run `fiche stop` and then start it again with `SSLKEYLOGFILE=/path/to/keys fiche start`.
 2. Open Wireshark, go to **Preferences → Protocols → TLS**, and set **(Pre)-Master-Secret log filename** to that file path.
 3. Filter on `tls.handshake.extensions_server_name` to check destination hostnames. From fiche, only `api.anthropic.com`, `judge.fiche.ink` and `api.fiche.ink` should appear. Other programs on your PC show up too, so close what you can, or compare a capture with fiche quit.
 4. Inspect the decrypted HTTP bodies to verify the exact payloads leaving your machine.
