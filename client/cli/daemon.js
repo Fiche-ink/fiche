@@ -158,14 +158,14 @@ async function uiCall(method, arg) {
 // `fiche ui`: the window app if it is installed, else the browser. From the SessionStart hook
 // (session: true) only the window app, and only when no screen is open yet, so starting more
 // Claude Code sessions does not pull fiche to the front each time.
-async function openScreen(session) {
+async function openScreen(session, env) {
   const url = ui.url();
   if (!url) return { error: 'screen not running' };
   if (session) {
     if (cfg.openWithClaude === false || ui.viewers() > 0 || !win.find()) return { opened: false };
-    return { opened: await win.launch(url) };
+    return { opened: await win.launch(url, env) };
   }
-  if (await win.launch(url)) return { opened: 'window' };
+  if (await win.launch(url, env)) return { opened: 'window' };
   return { opened: (await plat.openUrl(url)) ? 'browser' : false, url };
 }
 
@@ -233,7 +233,7 @@ async function handle(action, args) {
     case 'netlog': return net.list().slice(0, args.limit || 30);
     case 'page': return engine.latestPage();
     case 'ui': return { url: ui.url(), window: win.find()?.path || null, viewers: ui.viewers(), openWithClaude: cfg.openWithClaude !== false };
-    case 'ui:open': return openScreen(!!args.session);
+    case 'ui:open': return openScreen(!!args.session, args.env);
     case 'ui:with-claude': cfg.openWithClaude = !!args.on; saveCfg(); syncHook(); return { openWithClaude: cfg.openWithClaude, hook: hook.installed() };
     case 'quit': setTimeout(() => shutdown(0), 50); return { ok: true };
     default: return { error: 'unknown_action' };

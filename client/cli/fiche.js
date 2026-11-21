@@ -151,7 +151,7 @@ async function stats() {
 async function screen() {
   // From the SessionStart hook: never print (it would land in Claude's context), never fail.
   if (flag('session')) {
-    try { if (await control.alive()) await control.send('ui:open', { session: true }, 5000); } catch { }
+    try { if (await control.alive()) await control.send('ui:open', { session: true, env: require('./window').sessionEnv(process.env) }, 5000); } catch { }
     process.exit(0);
   }
   if (argv[1] === 'with-claude') {
@@ -164,7 +164,7 @@ async function screen() {
   }
   if (!(await control.alive())) await start({ quiet: true });
   if (flag('url')) return console.log((await ask('ui')).url);
-  const r = await ask('ui:open');
+  const r = await ask('ui:open', { env: require('./window').sessionEnv(process.env) });
   if (r.error) die(r.error);
   if (r.opened === 'window') return console.log(T('fiche 창을 열었습니다.', 'Opened the fiche window.'));
   if (r.opened === 'browser') return console.log(T('브라우저에서 열었습니다.', 'Opened it in your browser.'));
