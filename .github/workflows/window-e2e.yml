@@ -12,7 +12,7 @@ on:
 
 env:
   CLI: v1.2.0-beta.3
-  WIN: window-v0.1.0-beta.2
+  WIN: window-v0.1.0-beta.3
 
 jobs:
   macos:
@@ -73,18 +73,20 @@ jobs:
           echo "--- window.log"; cat ~/.config/fiche/window.log 2>/dev/null | sed 's/t=[0-9a-f]*/t=<token>/' || true
       - name: Run the window app by hand
         run: |
-          sudo apt-get install -y x11-utils xdotool openbox >/dev/null
+          sudo apt-get install -y x11-utils xdotool openbox gdb >/dev/null
           URL=$(~/.local/bin/fiche ui --url)
           xwininfo -root -tree | grep -i fiche || true
           pkill -f 'shell/fiche' || true; sleep 2
           openbox & sleep 3
-          for mode in plain sandbox-off; do
-            case $mode in plain) envs= ;; sandbox-off) envs=WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 ;; esac
+          for mode in plain no-single-instance; do
+            case $mode in plain) envs= ;; no-single-instance) envs=FICHE_NO_SINGLE_INSTANCE=1 ;; esac
             env $envs ~/.local/share/fiche/shell/fiche --url "$URL" > "out/direct-$mode.log" 2>&1 &
             sleep 12
             import -window root "out/direct-$mode.png"
             echo "--- $mode"; sed 's/t=[0-9a-f]*/t=<token>/' "out/direct-$mode.log" | grep -v dbind || true
             xwininfo -root -tree | grep -i fiche || true
+            pid=$(pgrep -f 'shell/fiche' | head -1)
+            [ -n "$pid" ] && sudo gdb -p "$pid" -batch -ex 'thread apply all bt 12' 2>/dev/null | grep -E '^(#|Thread)' | head -60 || true
             pkill -f 'shell/fiche' || true; sleep 2
           done
       - name: Quit, then open through the SessionStart hook

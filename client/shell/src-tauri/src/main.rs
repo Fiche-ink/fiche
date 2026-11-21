@@ -144,15 +144,20 @@ fn tray(app: &App) -> tauri::Result<()> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    tauri::Builder::default()
+    eprintln!("fiche window: starting");
+    let mut builder = tauri::Builder::default();
+    if std::env::var_os("FICHE_NO_SINGLE_INSTANCE").is_none() {
         // A second start (the daemon opening the window, a shortcut) goes to the running window.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if argv.iter().any(|a| a == "--url" || a == "--url-cmd") {
                 load(app.clone(), source(&argv));
             }
             show(app);
-        }))
+        }));
+    }
+    builder
         .setup(move |app| {
+            eprintln!("fiche window: setup");
             let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
                 .title("fiche")
                 .inner_size(1040.0, 680.0)
