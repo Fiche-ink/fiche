@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-latest
             out: fiche-window-macos.zip
           - os: windows-latest
             out: fiche-window-windows-x64.tar.gz
