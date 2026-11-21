@@ -91,6 +91,7 @@ const isolated = name => new Promise(ok => {
 const expectIsolated = async name => { const r = await isolated(name); assert.equal(r.code, 0, r.out); };
 
 await test('NO_PROXY decides which upstreams skip the HTTPS_PROXY from Claude Code settings', () => expectIsolated('noProxy'));
+await test('HTTPS_PROXY mode opens api.anthropic.com with the local CA, tunnels other hosts, keeps the old proxy and CA upstream, and restores them', () => expectIsolated('mitm'));
 await test('the proxy moves to a spare port when 47321 is taken, and Claude Code settings follow', async () => {
   assert.equal(await portFree(), true, 'another fiche is using port 47321; stop it before running this');
   await expectIsolated('portMove');

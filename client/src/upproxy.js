@@ -2,13 +2,12 @@
 // Code itself would have taken (env in ~/.claude/settings.json, else this process's env), so a company
 // proxy or a local account router stays in the chain instead of being skipped.
 const fs = require('fs'), http = require('http'), https = require('https'), tls = require('tls');
-const { FILE } = require('./claude');
+const claude = require('./claude');
 
-// Read per request: the file is small and mtime is too coarse on some filesystems to cache on.
-function claudeEnv() {
-  try { return JSON.parse(fs.readFileSync(FILE, 'utf8')).env || {}; } catch { return {}; }
-}
-const pick = (env, k) => env[k] ?? env[k.toLowerCase()] ?? process.env[k] ?? process.env[k.toLowerCase()];
+// Read per request: the file is small and mtime is too coarse on some filesystems to cache on. With
+// fiche itself as HTTPS_PROXY (mitm.js), these are the values from before fiche, so it never loops to itself.
+const claudeEnv = () => claude.before();
+const pick = (env, k) => env[k] || undefined;
 
 function bypassed(host, noProxy) {
   if (!noProxy) return false;
@@ -51,4 +50,10 @@ function agentFor(url) {
   return agents.get(key);
 }
 
-module.exports = { agentFor, bypassed };
+// The proxy URL to tunnel a CONNECT for `host` through, or undefined for direct.
+function proxyFor(host) {
+  const env = claudeEnv(), proxy = pick(env, 'HTTPS_PROXY');
+  return proxy && !bypassed(host, pick(env, 'NO_PROXY')) ? proxy : undefined;
+}
+
+module.exports = { agentFor, proxyFor, bypassed };

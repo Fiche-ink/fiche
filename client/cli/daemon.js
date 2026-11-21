@@ -12,6 +12,7 @@ const C = P.clientDir();
 const req = name => require(path.join(C, name + '.js'));
 const { createProxy, PORT } = req('proxy');
 const claude = req('claude');
+const mitm = req('mitm');
 const server = req('server');
 const engine = req('engine');
 const account = req('account');
@@ -295,6 +296,9 @@ async function main() {
     const was = cfg.port || PORT, port = await proxy.listen(cfg.port);
     PROXY_URL = `http://127.0.0.1:${port}`;
     if (port !== was) { portMovedFrom = was; cfg.port = port; saveCfg(); log(`port ${was} is in use, moved to ${port}`); }
+    // HTTPS_PROXY mode for Claude Desktop (mitm.js); without it the base-URL connection still works.
+    try { const ca = mitm.loadCA(P.dataDir); proxy.mitm(ca); claude.useCA({ ca: ca.file, bundle: path.join(P.dataDir, 'claude-ca.pem') }); }
+    catch (e) { log('https proxy mode off:', e.message); }
     log(`proxy on ${PROXY_URL}`);
   }
   catch (e) {

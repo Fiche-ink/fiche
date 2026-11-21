@@ -8,6 +8,7 @@ const server = require('./server');
 const engine = require('./engine');
 const net = require('./net');
 const upproxy = require('./upproxy');
+const mitm = require('./mitm');
 
 const PORT = 47321;
 // Spares for when another program holds PORT; 47322 is the window UI. claude.js FICHE_URL must match.
@@ -29,7 +30,7 @@ function readLimits(headers) {
 }
 
 function createProxy(getConfig, getInfo = async () => ({})) {
-  let port = PORT;
+  let port = PORT, inner = null;
   // An exception here would leave Claude Code waiting on a request that never answers.
   const srv = http.createServer((req, res) => handle(req, res).catch(e => {
     stats.errors++; stats.lastError = String(e?.message || e);
@@ -57,7 +58,8 @@ function createProxy(getConfig, getInfo = async () => ({})) {
       if (out) { body = out; stats.compressed++; } else stats.passthrough++;
     } else stats.passthrough++;
 
-    const up = new URL(cfg.upstream || 'https://api.anthropic.com');
+    // Opened from a CONNECT (HTTPS_PROXY mode): the host Claude Code asked for, not the base-URL upstream.
+    const up = new URL(req.socket.ficheHost ? `https://${req.socket.ficheHost}` : cfg.upstream || 'https://api.anthropic.com');
     const basePath = up.pathname.replace(/\/$/, '');
     const headers = { ...req.headers, host: up.host, 'content-length': body.length };
     delete headers.connection; delete headers['transfer-encoding'];
@@ -96,8 +98,10 @@ function createProxy(getConfig, getInfo = async () => ({})) {
       throw Object.assign(new Error(`ports ${PORTS[0]}-${PORTS.at(-1)} are all in use`), { code: 'EADDRINUSE' });
     },
     port: () => port,
+    // HTTPS_PROXY mode: answer CONNECT, open api.anthropic.com with the local CA, tunnel the rest.
+    mitm: ca => { inner = mitm.attach(srv, ca, host => upproxy.proxyFor(host)); },
     // Open streams would keep close() waiting and the port taken; a restart needs it free now.
-    close: () => new Promise(ok => { srv.close(() => ok()); srv.closeAllConnections?.(); }),
+    close: () => new Promise(ok => { inner?.close(); srv.close(() => ok()); srv.closeAllConnections?.(); }),
   };
 }
 
