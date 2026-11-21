@@ -73,12 +73,22 @@ jobs:
           echo "--- window.log"; cat ~/.config/fiche/window.log 2>/dev/null | sed 's/t=[0-9a-f]*/t=<token>/' || true
       - name: Run the window app by hand
         run: |
+          sudo apt-get install -y x11-utils >/dev/null
+          echo "--- X windows"; xwininfo -root -tree | grep -iE 'fiche|"' | head -20 || true
           URL=$(~/.local/bin/fiche ui --url)
-          timeout 10 ~/.local/share/fiche/shell/fiche --url "$URL" > out/direct.log 2>&1; echo "exit=$?" >> out/direct.log
-          sed 's/t=[0-9a-f]*/t=<token>/' out/direct.log
-          echo "--- with a D-Bus session"
-          timeout 10 dbus-run-session -- ~/.local/share/fiche/shell/fiche --url "$URL" > out/direct-dbus.log 2>&1; echo "exit=$?" >> out/direct-dbus.log
-          sed 's/t=[0-9a-f]*/t=<token>/' out/direct-dbus.log
+          pkill -f 'shell/fiche' || true; sleep 2
+          for mode in plain dmabuf-off compositing-off; do
+            case $mode in
+              plain) envs= ;;
+              dmabuf-off) envs=WEBKIT_DISABLE_DMABUF_RENDERER=1 ;;
+              compositing-off) envs=WEBKIT_DISABLE_COMPOSITING_MODE=1 ;;
+            esac
+            env $envs ~/.local/share/fiche/shell/fiche --url "$URL" > "out/direct-$mode.log" 2>&1 &
+            sleep 12
+            import -window root "out/direct-$mode.png"
+            pkill -f 'shell/fiche' || true; sleep 2
+            echo "--- $mode"; sed 's/t=[0-9a-f]*/t=<token>/' "out/direct-$mode.log" | grep -v dbind || true
+          done
       - name: Quit, then open through the SessionStart hook
         run: |
           pkill -f 'shell/fiche' || true; sleep 3
