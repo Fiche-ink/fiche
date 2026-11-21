@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  CLI: v1.2.0-beta.3
+  CLI: v1.2.0
   WIN: window-v0.1.0
 
 jobs:
