@@ -1,0 +1,147 @@
+# End-to-end check of the window app on real machines: install a published (pre)release with the
+# one-line installer, then screenshot the window it opens, check the SessionStart hook in
+# Claude Code's settings.json, and let that hook open the window again. Screenshots and the
+# daemon log are uploaded as artifacts.
+name: window app e2e
+
+on:
+  push:
+    branches: ['**']
+    paths: ['.github/workflows/window-e2e.yml']
+  workflow_dispatch:
+
+env:
+  CLI: v1.2.0-beta.1
+  WIN: window-v0.1.0-beta.1
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Install
+        run: |
+          mkdir -p ~/.claude && echo '{}' > ~/.claude/settings.json
+          curl -fsSL "https://raw.githubusercontent.com/fiche-ink/fiche/$GITHUB_REF_NAME/client/cli/install.sh" \
+            | FICHE_VERSION=$CLI FICHE_WINDOW_VERSION=$WIN sh
+      - name: Window after install
+        run: |
+          mkdir -p out; sleep 20
+          screencapture -x out/1-after-install.png
+          ~/.local/bin/fiche status || true
+          cat ~/.claude/settings.json
+          pgrep -fl 'fiche.app' || echo "window app not running"
+      - name: Quit, then open through the SessionStart hook
+        run: |
+          osascript -e 'quit app "fiche"' || true; sleep 3
+          pgrep -fl 'fiche.app' && echo "still running" || echo "quit"
+          cmd=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.claude/settings.json')))['hooks']['SessionStart'][0]['hooks'][0]['command'])")
+          out=$(sh -c "$cmd"); echo "hook stdout: [$out]"
+          sleep 15
+          screencapture -x out/2-after-hook.png
+          pgrep -fl 'fiche.app' || echo "window app not running"
+      - if: always()
+        run: cp ~/Library/Application\ Support/fiche/daemon.log out/ 2>/dev/null || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-macos
+          path: out
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Desktop libraries and a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 xvfb imagemagick
+          Xvfb :99 -screen 0 1280x800x24 &
+          echo DISPLAY=:99 >> "$GITHUB_ENV"
+      - name: Install
+        run: |
+          mkdir -p ~/.claude && echo '{}' > ~/.claude/settings.json
+          curl -fsSL "https://raw.githubusercontent.com/fiche-ink/fiche/$GITHUB_REF_NAME/client/cli/install.sh" \
+            | FICHE_VERSION=$CLI FICHE_WINDOW_VERSION=$WIN sh
+      - name: Window after install
+        run: |
+          mkdir -p out; sleep 20
+          import -window root out/1-after-install.png
+          ~/.local/bin/fiche status || true
+          cat ~/.claude/settings.json
+          cat ~/.local/share/applications/fiche.desktop
+          pgrep -fa 'shell/fiche' || echo "window app not running"
+      - name: Quit, then open through the SessionStart hook
+        run: |
+          pkill -f 'shell/fiche' || true; sleep 3
+          cmd=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.claude/settings.json')))['hooks']['SessionStart'][0]['hooks'][0]['command'])")
+          out=$(sh -c "$cmd"); echo "hook stdout: [$out]"
+          sleep 15
+          import -window root out/2-after-hook.png
+          pgrep -fa 'shell/fiche' || echo "window app not running"
+      - if: always()
+        run: cp ~/.config/fiche/daemon.log out/ 2>/dev/null || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-linux
+          path: out
+
+  wsl:
+    runs-on: windows-latest
+    steps:
+      - uses: Vampire/setup-wsl@v5
+        with:
+          distribution: Ubuntu-22.04
+          additional-packages: curl ca-certificates python3
+      - name: Install inside WSL
+        shell: wsl-bash {0}
+        run: |
+          mkdir -p ~/.claude && echo '{}' > ~/.claude/settings.json
+          curl -fsSL "https://raw.githubusercontent.com/fiche-ink/fiche/$GITHUB_REF_NAME/client/cli/install.sh" \
+            | FICHE_VERSION=$CLI FICHE_WINDOW_VERSION=$WIN sh
+          sleep 20
+          ~/.local/bin/fiche status || true
+          cat ~/.claude/settings.json
+          cat ~/.local/share/fiche/shell/windows-exe ~/.local/share/fiche/shell/windows-files || true
+        env:
+          WSLENV: CLI:WIN:GITHUB_REF_NAME
+      - name: Window after install
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          function Shot($name) {
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("out/$name")
+          }
+          Shot "1-after-install.png"
+          Get-Process fiche -ErrorAction SilentlyContinue | Format-Table Id, MainWindowTitle, Path -AutoSize
+          Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\fiche (WSL).lnk"
+          $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\fiche (WSL).lnk")
+          "$($s.TargetPath) $($s.Arguments)"
+      - name: Quit, then open through the SessionStart hook
+        shell: wsl-bash {0}
+        run: |
+          /mnt/c/Windows/System32/taskkill.exe /IM fiche.exe /F || true; sleep 3
+          cmd=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.claude/settings.json')))['hooks']['SessionStart'][0]['hooks'][0]['command'])")
+          out=$(sh -c "$cmd"); echo "hook stdout: [$out]"
+          sleep 15
+          cp ~/.config/fiche/daemon.log "$GITHUB_WORKSPACE/daemon.log" 2>/dev/null || true
+        env:
+          WSLENV: GITHUB_WORKSPACE/p
+      - name: Window after hook
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("out/2-after-hook.png")
+          Get-Process fiche -ErrorAction SilentlyContinue | Format-Table Id, MainWindowTitle -AutoSize
+          Copy-Item daemon.log out/ -ErrorAction SilentlyContinue
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-wsl
+          path: out
