@@ -112,6 +112,8 @@ jobs:
             cat SHA256SUMS
             echo '```'
           } > notes.md
+          # window-v0.2.0-beta.1 and the like are test builds: a prerelease.
+          pre=; case "$GITHUB_REF_NAME" in *-*) pre=--prerelease ;; esac
           gh release create "$GITHUB_REF_NAME" fiche-window-* SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "window app ${GITHUB_REF_NAME#window-}" \
-            --notes-file notes.md --latest=false
+            --notes-file notes.md --latest=false $pre
