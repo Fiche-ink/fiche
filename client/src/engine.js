@@ -25,9 +25,12 @@ function setup(cfg, token) {
   fs.writeFileSync(JUDGE_FLAG, JUDGE_URL + '\n');
   // One switch (handoff 4.3): data contribution. On, the engine sends outcome signals and the
   // shape sequence; off, the judge still decides (it has to) but keeps nothing for learning.
+  // Only a real setting touches the flag: `fiche doctor` runs setup({}) and must not change it.
   if (cfg.contrib === false) fs.rmSync(SIGNAL_FLAG, { force: true });
-  else fs.writeFileSync(SIGNAL_FLAG, 'app\n');
+  else if (cfg.contrib === true) fs.writeFileSync(SIGNAL_FLAG, 'app\n');
   const r = root();
+  // The app signs in with its own fiche key; never fall back to the gh CLI's token (S10 dev only).
+  process.env.FICHE_NO_GH_TOKEN = '1';
   process.env.FICHE_SDK = r;
   process.env.FICHE_FONT_KR = path.join(r, 'vendor', 'NotoSansKR.ttf');
   setToken(token);

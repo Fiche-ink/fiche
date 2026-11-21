@@ -125,7 +125,10 @@ ipcMain.handle('win', (_e, action) => {
 });
 ipcMain.handle('status', () => status());
 ipcMain.handle('proxy:set', (_e, on) => { cfg.proxyOn = !!on; saveCfg(); return status(); });
-ipcMain.handle('claude:set', (_e, on) => { cfg.autoConnect = !!on;
+ipcMain.handle('claude:set', (_e, on) => {
+  // Pointing Claude Code at a port another program holds would break Claude Code.
+  if (on && proxyError) { dialog.showErrorBox('fiche', proxyError); return status(); }
+  cfg.autoConnect = !!on;
   try { setClaude(!!on); return status(); }
   catch (e) { dialog.showErrorBox('fiche', e.message); return status(); }
 });
@@ -155,7 +158,7 @@ ipcMain.handle('account:signin', async () => {
   return status();
 });
 ipcMain.handle('account:cancel', () => { account.cancelSignIn(); return status(); });
-ipcMain.handle('account:signout', async () => { await account.signOut(); engine.setToken(null); return status(); });
+ipcMain.handle('account:signout', async () => { await account.signOut(); engine.setToken(null); cfg.plan = null; saveCfg(); return status(); });
 ipcMain.handle('account:refresh', async () => { await account.refresh(true).catch(() => {}); return status(); });
 ipcMain.handle('stats:get', () => meter.summary());
 ipcMain.handle('page:latest', () => engine.latestPage());
@@ -207,14 +210,18 @@ app.on('before-quit', () => {
   if (cfg.connected) { try { claude.disconnect(PROXY_URL, cfg.upstream); } catch { } }
 });
 
-// After sign-in (or at start when already signed in): hand the key to the engine, push the
-// settings the server keeps (plan, data contribution), refresh the film balance.
+// After sign-in (or at start when already signed in): hand the key to the engine and take the
+// account's plan and data contribution from the server. They are only sent when the user changes
+// them, so a fresh install or a second PC never overwrites the account's choice.
 async function afterSignIn() {
   engine.setToken(account.key());
-  const patch = { contrib: cfg.contrib !== false };
-  if (cfg.plan) patch.plan = cfg.plan;
-  await account.setProfile(patch).catch(() => {});
-  await account.refresh(true).catch(() => {});
+  const me = await account.refresh(true).catch(() => null);
+  if (me?.film) {
+    if (typeof me.film.contrib === 'boolean') cfg.contrib = me.film.contrib;
+    cfg.plan = me.film.plan || null;
+    saveCfg();
+    engine.setup(cfg, account.key());
+  }
   reportUsage();
 }
 // Every 6 hours, only while data contribution is on: plan, pixels drawn in the last 7 days

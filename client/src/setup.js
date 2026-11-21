@@ -243,11 +243,12 @@ async function runUninstall() {
 
   // A running copy gets our argv through 'second-instance' and quits (restoring Claude Code settings).
   if (!app.requestSingleInstanceLock()) for (let i = 0; i < 20; i++) { await sleep(500); if (app.requestSingleInstanceLock()) break; }
-  try { // in case the app was not running or was killed: put settings.json back
-    const claude = require('./claude');
-    const cfg = JSON.parse(ofs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8'));
-    claude.disconnect(`http://127.0.0.1:${require('./proxy').PORT}`, cfg.upstream);
-  } catch { }
+  // In case the app was not running or was killed: put settings.json back. A missing or broken
+  // config.json only loses the remembered upstream; the proxy address still has to go.
+  let cfg = {};
+  try { cfg = JSON.parse(ofs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8')) || {}; } catch { }
+  try { require('./claude').disconnect(`http://127.0.0.1:${require('./proxy').PORT}`, cfg.upstream); }
+  catch (e) { console.error('restore settings.json', e?.message); }
   // Start-with-Windows entry. src/startup.js turns it on without passing a name, and on a real
   // install the value comes out named after the app ID the app set at startup (checked on a
   // Windows runner: ink.fiche.desktop), which is why the AUMID is passed here - this process

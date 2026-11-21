@@ -70,10 +70,18 @@
     const s = await api.status();
     { const v = [...document.querySelectorAll('.item')].find(i => i.querySelector('b')?.textContent.trim() === (api.lang === 'en' ? 'Version' : '버전')); const m = v?.querySelector('.mono'); if (m) m.textContent = s.version; }
     const q = sel => document.querySelector(sel.replace(/\[aria-label="([^"]*)"\]/g, (m, v) => `:is([data-ko-aria-label="${v}"],[aria-label="${v}"])`));
+
+    // The proxy could not start (port taken): say so instead of showing "Running".
+    if (s.proxyListening === false) {
+      const badge = document.getElementById('proxyBadge');
+      if (badge) { badge.className = 'status badge warn'; badge.lastChild.textContent = L('포트 사용 중', 'Port in use'); }
+      const d = document.getElementById('proxyDesc');
+      if (d) d.textContent = L(`127.0.0.1:${s.port}을 다른 프로그램이 쓰고 있어 fiche가 동작하지 않습니다. 그 프로그램을 끄고 fiche를 다시 시작하세요.`, `Another program is using 127.0.0.1:${s.port}, so fiche cannot run. Close it and restart fiche.`);
+    }
     bind(q('#proxyToggle'), s.proxyOn, async v => (await api.setProxy(v)).proxyOn);
     const ccSw = q('[aria-label="Claude Code 연결"]');
     const ccDetails = ccSw?.closest('.feature')?.querySelector('.details');
-    const ccText = st => st.connected ? L('settings.json에 연결돼 있습니다. fiche를 끄면 원래대로 돌아갑니다.', 'Connected through settings.json. Turning fiche off restores the original.')
+    const ccText = st => st.connected ? L('Claude Code가 fiche를 거쳐 요청을 보냅니다. fiche를 끄면 설정이 원래대로 돌아갑니다.', 'Claude Code sends its requests through fiche. Turning fiche off restores its settings.')
       : !st.autoConnect ? L('꺼 두었습니다. 켜면 다시 연결합니다.', 'Turned off. Turn it on to connect again.')
       : !st.claudeFound ? L('Claude Code를 찾지 못했습니다. 설치하면 자동으로 연결됩니다.', 'Claude Code was not found. It connects automatically once installed.') : null;
     const ccPaint = st => { const t = ccText(st); if (ccDetails && t) ccDetails.textContent = t; };
@@ -81,6 +89,9 @@
     bind(ccSw, s.connected, async v => { const r = await api.setClaude(v); ccPaint(r); return r.connected; });
     api.onClaude(async v => { ccSw?._fsync?.(v); ccPaint(await api.status()); });
     bind(q('[aria-label="자동 실행"]'), s.autostart, async v => (await api.setAutostart(v)).autostart);
-    bind(q('[aria-label="데이터 기여"]'), s.contrib, async v => (await api.setContrib(v)).contrib);
+    const contribSw = q('[aria-label="데이터 기여"]');
+    bind(contribSw, s.contrib, async v => (await api.setContrib(v)).contrib);
+    // The server keeps the account's choice; follow it when it arrives after sign-in.
+    api.onAccount?.(a => { const v = a?.me?.film?.contrib; if (typeof v === 'boolean') contribSw?._fsync?.(v); });
   });
 })();

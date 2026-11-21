@@ -30,6 +30,10 @@ else { $base = "https://github.com/$repo/releases/latest/download" }
 
 function Say($m) { Write-Host "fiche: $m" }
 function Die($m) { Write-Host "fiche: $m" -ForegroundColor Red; exit 1 }
+# Korean text is kept as \u escapes: the site serves this file without a charset, so
+# PowerShell 5.1 `irm` would decode literal UTF-8 as Latin-1.
+$ko = (Get-UICulture).TwoLetterISOLanguageName -eq 'ko'
+function L($en, $koEsc) { if ($ko) { [regex]::Unescape($koEsc) } else { $en } }
 
 if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {
   Say 'ARM64 Windows: the x64 build runs under emulation.'
@@ -54,7 +58,7 @@ try {
     return $to
   }
 
-  Say "downloading $asset"
+  Say "$(L 'downloading' '\uB0B4\uB824\uBC1B\uB294 \uC911') $asset"
   $zip = Grab $asset $true
   Unblock-File $zip -ErrorAction SilentlyContinue
 
@@ -65,13 +69,14 @@ try {
       $wantHash = ($want.Line -split '\s+')[0].ToLower()
       $gotHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
       if ($wantHash -ne $gotHash) { Die "checksum mismatch`n  expected $wantHash`n  got      $gotHash" }
-      Say 'sha256 ok'
+      Say (L 'SHA-256 ok' 'SHA-256 \uD655\uC778 \uC644\uB8CC')
     } else { Say "SHA256SUMS has no line for $asset; skipping the check" }
   } else { Say 'SHA256SUMS was not published with this release; skipping the check' }
 
   # ---- stop a running copy so its files can be replaced ----
   $exe = Join-Path $dir 'fiche.exe'
-  if (Test-Path $exe) {
+  $upgrade = Test-Path $exe
+  if ($upgrade) {
     try { Start-Process $exe -ArgumentList '--quit' | Out-Null } catch { }
     for ($i = 0; $i -lt 20; $i++) {
       $live = @(Get-Process fiche -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
@@ -100,8 +105,7 @@ try {
   }
   Copy-Item (Join-Path $root '*') $dir -Recurse -Force
   $ver = 'unknown'
-  try { $ver = (Get-Item $exe).VersionInfo.ProductVersion } catch { }
-  Say "installed $ver in $dir"
+  try { $ver = (Get-Item $exe).VersionInfo.ProductVersion -replace '^(\d+\.\d+\.\d+)\.0$', '$1' } catch { }
 
   # ---- register: Installed apps entry and shortcuts, written by the app itself ----
   $regArgs = @('--register-install')
@@ -109,20 +113,32 @@ try {
   $p = Start-Process $exe -ArgumentList $regArgs -PassThru -Wait
   if ($p.ExitCode -ne 0) { Say "registering returned $($p.ExitCode)" }
 
-  if ($env:FICHE_NO_START -ne '1') {
+  $started = $env:FICHE_NO_START -ne '1'
+  if ($started) {
     $startArgs = @()
     if ($env:FICHE_NO_AUTOSTART -ne '1') { $startArgs += '--autostart=1' }
     Start-Process $exe -ArgumentList $startArgs | Out-Null
-    Say 'started'
   }
 
   Write-Host ''
-  Write-Host '  fiche is in your Start menu. Open it and click Sign in; nothing is compressed until you do.'
-  Write-Host '  Claude Code is connected automatically, and turning fiche off puts its settings back.'
-  Write-Host '  To remove it: Settings > Apps > Installed apps > fiche.'
-  Write-Host ''
-  Write-Host '  Claude Code inside WSL2 is separate. Install it there with:'
-  Write-Host '    curl -fsSL https://fiche.ink/install.sh | sh'
+  if ($upgrade) {
+    Write-Host (L "fiche $ver is updated." "fiche $ver\uC73C\uB85C \uC5C5\uB370\uC774\uD2B8\uD588\uC2B5\uB2C8\uB2E4.") -ForegroundColor Green
+  } else {
+    Write-Host (L "fiche $ver is installed." "fiche $ver\uC744 \uC124\uCE58\uD588\uC2B5\uB2C8\uB2E4.") -ForegroundColor Green
+    if ($started) {
+      Write-Host (L '  Sign in with GitHub or Google in the fiche window that just opened. Claude Code connects automatically, and conversation text never goes to fiche servers.' '  \uC5F4\uB9B0 fiche \uCC3D\uC5D0\uC11C GitHub \uB610\uB294 Google\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694. Claude Code\uB294 \uC790\uB3D9\uC73C\uB85C \uC5F0\uACB0\uB418\uBA70 \uB300\uD654 \uC6D0\uBB38\uC740 fiche \uC11C\uBC84\uB85C \uBCF4\uB0B4\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.')
+      Write-Host (L '  No window? Open fiche from the Start menu.' '  \uCC3D\uC774 \uC548 \uBCF4\uC774\uBA74 \uC2DC\uC791 \uBA54\uB274\uC5D0\uC11C fiche\uB97C \uC5EC\uC138\uC694.')
+    } else {
+      Write-Host (L '  Open fiche from the Start menu and sign in with GitHub or Google. Claude Code connects automatically, and conversation text never goes to fiche servers.' '  \uC2DC\uC791 \uBA54\uB274\uC5D0\uC11C fiche\uB97C \uC5F4\uACE0 GitHub \uB610\uB294 Google\uB85C \uB85C\uADF8\uC778\uD558\uC138\uC694. Claude Code\uB294 \uC790\uB3D9\uC73C\uB85C \uC5F0\uACB0\uB418\uBA70 \uB300\uD654 \uC6D0\uBB38\uC740 fiche \uC11C\uBC84\uB85C \uBCF4\uB0B4\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.')
+    }
+  }
+
+  # WSL distros register under Lxss; Claude Code inside them needs the Linux install.
+  if (@(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' -ErrorAction SilentlyContinue).Count -gt 0) {
+    Write-Host ''
+    Write-Host (L '  Claude Code inside WSL is separate. Install fiche there with:' '  WSL \uC548\uC758 Claude Code\uB294 WSL\uC5D0\uC11C \uB530\uB85C \uC124\uCE58\uD569\uB2C8\uB2E4:')
+    Write-Host '    curl -fsSL https://fiche.ink/install.sh | sh'
+  }
 }
 finally {
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

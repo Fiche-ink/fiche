@@ -202,7 +202,7 @@ async function doctor() {
   let engineOk = false, engineErr = '', pageOk = false, pageErr = '';
   try {
     const engine = require(path.join(P.clientDir(), 'engine.js'));
-    engine.setup({ contrib: false }, null);
+    engine.setup({}, null);
     const E = await engine.load();
     engineOk = true;
     // Fresh text every run: the engine keeps a drawn page by content hash, and a cached hit
@@ -240,6 +240,14 @@ async function doctor() {
 async function uninstall() {
   await service.uninstall();
   await stop({ quiet: true });
+  // The daemon restores these when it stops; if it was not running, or died, do it here.
+  try {
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(path.join(P.dataDir, 'config.json'), 'utf8')) || {}; } catch { }
+    const { PORT } = require(path.join(P.clientDir(), 'proxy.js'));
+    require(path.join(P.clientDir(), 'claude.js')).disconnect(`http://127.0.0.1:${PORT}`, cfg.upstream);
+  } catch (e) { console.error(T(`Claude Code 설정을 되돌리지 못했습니다: ${e.message}`, `Could not restore the Claude Code settings: ${e.message}`)); }
+  try { require('./hook').remove(); } catch { }
   // install.sh lays the install out as <prefix>/versions/<ver> with a shared <prefix>/node, so
   // the folder worth naming is the prefix, not the version that happens to be running.
   const real = fs.realpathSync(P.root());
@@ -301,7 +309,8 @@ async function main() {
     case 'login': return login();
     case 'ui': return screen();
     case 'logout': await ask('logout'); return console.log(T('로그아웃했습니다.', 'Signed out.'));
-    case 'connect': await ask('connect'); return console.log(T('Claude Code를 연결했습니다. 열려 있는 창은 다시 시작해야 적용됩니다.', 'Connected. Claude Code windows that are already open pick it up after a restart.'));
+    case 'connect': { const r = await ask('connect'); if (r?.error) die(T(`연결하지 않았습니다: ${r.error}`, `Not connected: ${r.error}`)); }
+      return console.log(T('Claude Code를 연결했습니다. 열려 있는 창은 다시 시작해야 적용됩니다.', 'Connected. Claude Code windows that are already open pick it up after a restart.'));
     case 'disconnect': await ask('disconnect'); return console.log(T('연결을 끊고 설정을 되돌렸습니다.', 'Disconnected and put the settings back.'));
     case 'on': await ask('proxy', { on: true }); return console.log(T('압축을 켰습니다.', 'Compression on.'));
     case 'off': await ask('proxy', { on: false }); return console.log(T('압축을 껐습니다. 요청은 그대로 지나갑니다.', 'Compression off. Requests pass through untouched.'));

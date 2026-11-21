@@ -170,12 +170,17 @@ async function openScreen(session, env) {
 }
 
 // ---- account ----
+// Plan and data contribution come from the server and are only sent when the user changes them,
+// so a fresh install or a second machine never overwrites the account's choice.
 async function afterSignIn() {
   engine.setToken(account.key());
-  const patch = { contrib: cfg.contrib !== false };
-  if (cfg.plan) patch.plan = cfg.plan;
-  await account.setProfile(patch).catch(() => { });
-  await account.refresh(true).catch(() => { });
+  const me = await account.refresh(true).catch(() => null);
+  if (me?.film) {
+    if (typeof me.film.contrib === 'boolean') cfg.contrib = me.film.contrib;
+    cfg.plan = me.film.plan || null;
+    saveCfg();
+    engine.setup(cfg, account.key());
+  }
   reportUsage();
 }
 let lastReport = 0;
@@ -213,6 +218,7 @@ async function handle(action, args) {
     case 'proxy': cfg.proxyOn = !!args.on; saveCfg(); return status();
     case 'connect': case 'disconnect': {
       const on = action === 'connect';
+      if (on && proxyError) return { ...(await status()), error: proxyError };
       cfg.autoConnect = on; setClaude(on);
       return status();
     }
@@ -227,7 +233,7 @@ async function handle(action, args) {
       return status();
     case 'login': return startSignIn();
     case 'login:cancel': account.cancelSignIn(); return { ok: true };
-    case 'logout': await account.signOut(); engine.setToken(null); return status();
+    case 'logout': await account.signOut(); engine.setToken(null); cfg.plan = null; saveCfg(); return status();
     case 'refresh': await account.refresh(true).catch(() => { }); return status();
     case 'stats': return meter.summary();
     case 'netlog': return net.list().slice(0, args.limit || 30);

@@ -16,7 +16,7 @@ const API = process.env.FICHE_API || 'https://api.fiche.ink';
 const JUDGE = process.env.FICHE_JUDGE_URL || 'https://judge.fiche.ink';
 const emitter = new EventEmitter();
 
-let file = null, safe = null, state = { key: null, email: null, accountId: null }, me = null, meAt = 0;
+let file = null, safe = null, state = { key: null, email: null, accountId: null }, me = null, meAt = 0, meErr = null;
 
 function init(dir, safeStorage) {
   file = path.join(dir, 'account.json'); safe = safeStorage || null;
@@ -42,7 +42,7 @@ function save() {
 
 const key = () => state.key;
 const signedIn = () => !!state.key;
-const info = () => ({ signedIn: !!state.key, email: state.email, accountId: state.accountId, me });
+const info = () => ({ signedIn: !!state.key, email: state.email, accountId: state.accountId, me, meErr });
 
 async function api(method, p, body) {
   const headers = { 'content-type': 'application/json' };
@@ -100,7 +100,7 @@ function signIn(openExternal) {
 function cancelSignIn() { if (pending) pending.cancel(); }
 
 async function signOut() {
-  state = { key: null, email: null, accountId: null }; me = null; save();
+  state = { key: null, email: null, accountId: null }; me = null; meAt = 0; meErr = null; save();
   emitter.emit('change', info());
 }
 
@@ -108,7 +108,11 @@ async function signOut() {
 async function refresh(force = false) {
   if (!state.key) return null;
   if (!force && me && Date.now() - meAt < 60e3) return me;
-  const r = await api('GET', '/v1/me');
+  let r;
+  try { r = await api('GET', '/v1/me'); }
+  catch (e) { meErr = String(e?.message || e); emitter.emit('change', info()); throw e; }
+  meErr = r.ok && r.data ? null : `HTTP ${r.status}`;
+  if (meErr) emitter.emit('change', info());
   if (r.ok && r.data) {
     me = r.data; meAt = Date.now();
     if (r.data.email && r.data.email !== state.email) { state.email = r.data.email; save(); }
@@ -121,7 +125,7 @@ async function refresh(force = false) {
 async function setProfile(patch) {
   if (!state.key) return null;
   const r = await api('POST', '/v1/profile', patch);
-  if (r.ok && r.data) { me = { ...(me || {}), ...r.data, film: r.data.film?.film ? r.data.film.film : me?.film }; emitter.emit('change', info()); }
+  if (r.ok && r.data) { me = { ...(me || {}), ...r.data, film: r.data.film || me?.film }; emitter.emit('change', info()); }
   return r;
 }
 
