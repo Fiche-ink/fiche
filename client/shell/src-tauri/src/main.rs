@@ -105,9 +105,11 @@ fn load(app: AppHandle, src: Source) {
         if let Some(w) = app.get_webview_window(LABEL) {
             match url {
                 Some(u) => {
-                    let _ = w.navigate(u);
+                    let r = w.navigate(u);
+                    eprintln!("fiche window: screen found, navigate {:?}", r.err());
                 }
                 None => {
+                    eprintln!("fiche window: screen not found");
                     let _ = w.eval("document.body.classList.add('failed')");
                 }
             }
@@ -151,7 +153,7 @@ fn main() {
             show(app);
         }))
         .setup(move |app| {
-            WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
+            let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
                 .title("fiche")
                 .inner_size(1040.0, 680.0)
                 .min_inner_size(900.0, 600.0)
@@ -167,10 +169,21 @@ fn main() {
                     false
                 })
                 .build()?;
+            // Shown explicitly: on some Linux setups a window built here stays unmapped otherwise.
+            let shown = win.show();
+            eprintln!("fiche window: created, show {:?}", shown.err());
+            {
+                let w = win.clone();
+                thread::spawn(move || {
+                    thread::sleep(std::time::Duration::from_secs(5));
+                    eprintln!("fiche window: after 5 s visible {:?} size {:?} position {:?}", w.is_visible().ok(), w.inner_size().ok(), w.outer_position().ok());
+                });
+            }
             // Linux without an AppIndicator library panics while making the tray; the window
             // then simply closes for real instead of hiding into a tray that is not there.
             let tray_ok = matches!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray(app))), Ok(Ok(())));
             HIDE_ON_CLOSE.store(tray_ok || cfg!(target_os = "macos"), Ordering::Relaxed);
+            eprintln!("fiche window: tray {}", if tray_ok { "on" } else { "off" });
             load(app.handle().clone(), source(&args));
             Ok(())
         })
