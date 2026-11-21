@@ -73,22 +73,29 @@ jobs:
           echo "--- window.log"; cat ~/.config/fiche/window.log 2>/dev/null | sed 's/t=[0-9a-f]*/t=<token>/' || true
       - name: Run the window app by hand
         run: |
-          sudo apt-get install -y x11-utils >/dev/null
-          echo "--- X windows"; xwininfo -root -tree | grep -iE 'fiche|"' | head -20 || true
+          sudo apt-get install -y x11-utils xdotool openbox >/dev/null
           URL=$(~/.local/bin/fiche ui --url)
+          echo "--- windows while the installed app runs"
+          xwininfo -root -tree | grep -i fiche || true
+          xdotool search --onlyvisible --name fiche 2>/dev/null | while read -r w; do xdotool getwindowname $w; xdotool getwindowgeometry $w; done || true
           pkill -f 'shell/fiche' || true; sleep 2
-          for mode in plain dmabuf-off compositing-off; do
-            case $mode in
-              plain) envs= ;;
-              dmabuf-off) envs=WEBKIT_DISABLE_DMABUF_RENDERER=1 ;;
-              compositing-off) envs=WEBKIT_DISABLE_COMPOSITING_MODE=1 ;;
-            esac
-            env $envs ~/.local/share/fiche/shell/fiche --url "$URL" > "out/direct-$mode.log" 2>&1 &
-            sleep 12
-            import -window root "out/direct-$mode.png"
-            pkill -f 'shell/fiche' || true; sleep 2
-            echo "--- $mode"; sed 's/t=[0-9a-f]*/t=<token>/' "out/direct-$mode.log" | grep -v dbind || true
-          done
+          echo "--- control: xmessage"
+          xmessage -geometry 400x100+50+50 "capture works" & sleep 3
+          import -window root out/control-xmessage.png; pkill xmessage || true
+          echo "--- with a window manager"
+          openbox & sleep 3
+          ~/.local/share/fiche/shell/fiche --url "$URL" > out/direct-openbox.log 2>&1 &
+          sleep 12
+          xdotool search --onlyvisible --name fiche 2>/dev/null | while read -r w; do xdotool getwindowname $w; xdotool getwindowgeometry $w; done || true
+          import -window root out/direct-openbox.png
+          sed 's/t=[0-9a-f]*/t=<token>/' out/direct-openbox.log | grep -v dbind || true
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 ~/.local/share/fiche/shell/fiche --url "$URL" > /dev/null 2>&1 &
+          sleep 3
+          pkill -f 'shell/fiche' || true; sleep 2
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 ~/.local/share/fiche/shell/fiche --url "$URL" > out/direct-openbox-dmabuf-off.log 2>&1 &
+          sleep 12
+          import -window root out/direct-openbox-dmabuf-off.png
+          pkill -f 'shell/fiche' || true; sleep 2
       - name: Quit, then open through the SessionStart hook
         run: |
           pkill -f 'shell/fiche' || true; sleep 3
