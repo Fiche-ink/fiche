@@ -198,7 +198,9 @@ fi
 # Like the CLI it is not signed; fetched here rather than through a browser, it carries no
 # quarantine flag (macOS) or mark of the web (Windows), so it opens without a warning.
 win_ok=0
-win_cmd() { (cd /mnt/c 2>/dev/null && /mnt/c/Windows/System32/cmd.exe /c "$1" 2>/dev/null | tr -d '\r'); }
+# Windows programs started from WSL read this shell's stdin, and with `curl ... | sh` that is the
+# rest of this script: every one of them gets </dev/null.
+win_cmd() { (cd /mnt/c 2>/dev/null && /mnt/c/Windows/System32/cmd.exe /c "$1" </dev/null 2>/dev/null | tr -d '\r'); }
 install_window() {
   wbase=${FICHE_WINDOW_BASE_URL:-https://github.com/$REPO/releases/download/$WINDOW_TAG}
   if [ "$is_wsl" = 1 ]; then wasset=fiche-window-windows-x64.tar.gz
@@ -237,7 +239,7 @@ install_window() {
     FW_ARGS="--url-cmd wsl.exe -d ${WSL_DISTRO_NAME:-} -e $PREFIX/current/bin/fiche ui --url" WSLENV=FW_TARGET:FW_LNK:FW_ARGS \
       /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -NonInteractive -Command \
       '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:FW_LNK); $s.TargetPath = $env:FW_TARGET; $s.Arguments = $env:FW_ARGS; $s.IconLocation = $env:FW_TARGET; $s.Save()' \
-      >/dev/null 2>&1 || err "could not add the Start menu shortcut"
+      </dev/null >/dev/null 2>&1 || err "could not add the Start menu shortcut"
     printf '%s\n%s\n' "$wdir" "$lnk" > "$PREFIX/shell/windows-files"
     return 0
   fi
@@ -274,7 +276,7 @@ if [ "$DO_START" = 1 ]; then "$BINDIR/fiche" start --quiet || err "could not sta
 opened=0
 if [ "$win_ok" = 1 ] && [ "$DO_START" = 1 ] && [ -z "${SSH_CONNECTION:-}" ]; then
   if [ "$plat" = darwin ] || [ "$is_wsl" = 1 ] || [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-    "$BINDIR/fiche" ui >/dev/null 2>&1 && opened=1 || true
+    "$BINDIR/fiche" ui </dev/null >/dev/null 2>&1 && opened=1 || true
   fi
 fi
 

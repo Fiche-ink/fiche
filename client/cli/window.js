@@ -5,7 +5,10 @@
 //   WSL2   a Windows build under %LOCALAPPDATA%\Programs\fiche-wsl; its /mnt/c path is in
 //          <prefix>/shell/windows-exe, and it reaches this daemon through WSL's localhost forwarding.
 const fs = require('fs'), path = require('path'), os = require('os');
+const { spawn } = require('child_process');
 const P = require('./paths'), plat = require('./platform');
+
+const LOG = path.join(P.dataDir, 'window.log');
 
 const prefix = () => path.resolve(P.root(), '..');
 
@@ -33,8 +36,17 @@ function launch(url) {
   const w = find();
   if (!w) return Promise.resolve(false);
   // Not `open -n`: a running copy is brought to the front (and shows its window) instead of a second one.
-  if (w.kind === 'mac') return plat.spawnOk('open', ['-a', w.path, '--args', '--url', url]);
-  return plat.spawnOk(w.path, ['--url', url]);
+  const [cmd, args] = w.kind === 'mac' ? ['open', ['-a', w.path, '--args', '--url', url]] : [w.path, ['--url', url]];
+  // What the window app prints goes to window.log, so a window that dies at start can be explained.
+  let out = 'ignore';
+  try { fs.mkdirSync(path.dirname(LOG), { recursive: true }); out = fs.openSync(LOG, 'w', 0o600); } catch { }
+  return new Promise(ok => {
+    let child;
+    try { child = spawn(cmd, args, { stdio: ['ignore', out, out], detached: true }); }
+    catch { return ok(false); } finally { if (typeof out === 'number') try { fs.closeSync(out); } catch { } }
+    child.once('error', () => ok(false));
+    child.once('spawn', () => { child.unref(); ok(true); });
+  });
 }
 
 // Best effort; a machine without a notification service just gets nothing.

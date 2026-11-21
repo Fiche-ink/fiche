@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  CLI: v1.2.0-beta.1
+  CLI: v1.2.0-beta.2
   WIN: window-v0.1.0-beta.1
 
 jobs:
@@ -29,7 +29,8 @@ jobs:
           screencapture -x out/1-after-install.png
           ~/.local/bin/fiche status || true
           cat ~/.claude/settings.json
-          pgrep -fl 'fiche.app' || echo "window app not running"
+          pgrep -fl 'fiche.app' | sed 's/t=[0-9a-f]*/t=<token>/' || echo "window app not running"
+          cat ~/Library/Application\ Support/fiche/window.log 2>/dev/null | sed 's/t=[0-9a-f]*/t=<token>/' || true
       - name: Quit, then open through the SessionStart hook
         run: |
           osascript -e 'quit app "fiche"' || true; sleep 3
@@ -38,7 +39,7 @@ jobs:
           out=$(sh -c "$cmd"); echo "hook stdout: [$out]"
           sleep 15
           screencapture -x out/2-after-hook.png
-          pgrep -fl 'fiche.app' || echo "window app not running"
+          pgrep -fl 'fiche.app' | sed 's/t=[0-9a-f]*/t=<token>/' || echo "window app not running"
       - if: always()
         run: cp ~/Library/Application\ Support/fiche/daemon.log out/ 2>/dev/null || true
       - if: always()
@@ -68,7 +69,16 @@ jobs:
           ~/.local/bin/fiche status || true
           cat ~/.claude/settings.json
           cat ~/.local/share/applications/fiche.desktop
-          pgrep -fa 'shell/fiche' || echo "window app not running"
+          pgrep -fa 'shell/fiche' | sed 's/t=[0-9a-f]*/t=<token>/' || echo "window app not running"
+          echo "--- window.log"; cat ~/.config/fiche/window.log 2>/dev/null | sed 's/t=[0-9a-f]*/t=<token>/' || true
+      - name: Run the window app by hand
+        run: |
+          URL=$(~/.local/bin/fiche ui --url)
+          timeout 10 ~/.local/share/fiche/shell/fiche --url "$URL" > out/direct.log 2>&1; echo "exit=$?" >> out/direct.log
+          sed 's/t=[0-9a-f]*/t=<token>/' out/direct.log
+          echo "--- with a D-Bus session"
+          timeout 10 dbus-run-session -- ~/.local/share/fiche/shell/fiche --url "$URL" > out/direct-dbus.log 2>&1; echo "exit=$?" >> out/direct-dbus.log
+          sed 's/t=[0-9a-f]*/t=<token>/' out/direct-dbus.log
       - name: Quit, then open through the SessionStart hook
         run: |
           pkill -f 'shell/fiche' || true; sleep 3
@@ -76,7 +86,7 @@ jobs:
           out=$(sh -c "$cmd"); echo "hook stdout: [$out]"
           sleep 15
           import -window root out/2-after-hook.png
-          pgrep -fa 'shell/fiche' || echo "window app not running"
+          pgrep -fa 'shell/fiche' | sed 's/t=[0-9a-f]*/t=<token>/' || echo "window app not running"
       - if: always()
         run: cp ~/.config/fiche/daemon.log out/ 2>/dev/null || true
       - if: always()
@@ -102,6 +112,7 @@ jobs:
           ~/.local/bin/fiche status || true
           cat ~/.claude/settings.json
           cat ~/.local/share/fiche/shell/windows-exe ~/.local/share/fiche/shell/windows-files || true
+          echo "--- window.log"; cat ~/.config/fiche/window.log 2>/dev/null | sed 's/t=[0-9a-f]*/t=<token>/' || true
         env:
           WSLENV: CLI:WIN:GITHUB_REF_NAME
       - name: Window after install
