@@ -29,6 +29,11 @@ elseif ($env:FICHE_VERSION) { $base = "https://github.com/$repo/releases/downloa
 else { $base = "https://github.com/$repo/releases/latest/download" }
 
 function Say($m) { Write-Host "fiche: $m" }
+# One status line redrawn in place: fiche: label [#####...............] 25% tail
+function Bar($label, $pct, $tail) {
+  $n = [math]::Floor($pct / 5)
+  Write-Host -NoNewline ("`rfiche: $label [" + ('#' * $n) + ('.' * (20 - $n)) + "] $pct% $tail   ")
+}
 function Die($m) { Write-Host "fiche: $m" -ForegroundColor Red; exit 1 }
 # Korean text is kept as \u escapes: the site serves this file without a charset, so
 # PowerShell 5.1 `irm` would decode literal UTF-8 as Latin-1.
@@ -41,25 +46,50 @@ if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {
 
 $tmp = Join-Path $env:TEMP ("fiche-install-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+# PowerShell 5.1 redraws its own progress UI for every chunk, which makes downloads and unzipping
+# many times slower; the script draws its own bar instead. Restored in finally (iex runs in the caller's scope).
+$oldProgress = $ProgressPreference
+$ProgressPreference = 'SilentlyContinue'
 try {
   # ---- download (a local folder is allowed, which is how CI tests this script) ----
   $isLocal = -not ($base -match '^https?://')
   $localBase = $base -replace '^file:///?', ''
-  function Grab($name, $required) {
+  function Fetch($url, $to, $label) {
+    $req = [Net.HttpWebRequest]::Create($url)
+    $req.UserAgent = 'fiche-install'
+    $res = $req.GetResponse()
+    try {
+      $total = $res.ContentLength
+      $in = $res.GetResponseStream()
+      $out = [IO.File]::Create($to)
+      try {
+        $buf = New-Object byte[] 262144
+        $done = 0; $shown = -1
+        while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+          $out.Write($buf, 0, $n); $done += $n
+          if ($total -gt 0) {
+            $p = [math]::Floor($done * 100 / $total)
+            if ($p -ne $shown) { $shown = $p; Bar $label $p ("{0:N1}/{1:N1} MB" -f ($done / 1MB), ($total / 1MB)) }
+          }
+        }
+      } finally { $out.Close(); $in.Close() }
+    } finally { $res.Close() }
+    Write-Host ''
+  }
+  function Grab($name, $required, $label) {
     $to = Join-Path $tmp $name
     if ($isLocal) {
       $from = Join-Path $localBase $name
       if (-not (Test-Path $from)) { if ($required) { Die "not found: $from" } else { return $null } }
       Copy-Item $from $to -Force
     } else {
-      try { Invoke-WebRequest -Uri "$base/$name" -OutFile $to -UseBasicParsing }
+      try { if ($label) { Fetch "$base/$name" $to $label } else { Invoke-WebRequest -Uri "$base/$name" -OutFile $to -UseBasicParsing } }
       catch { if ($required) { Die "could not download $base/$name" } else { return $null } }
     }
     return $to
   }
 
-  Say "$(L 'downloading' '\uB0B4\uB824\uBC1B\uB294 \uC911') $asset"
-  $zip = Grab $asset $true
+  $zip = Grab $asset $true (L 'downloading' '\uB0B4\uB824\uBC1B\uB294 \uC911')
   Unblock-File $zip -ErrorAction SilentlyContinue
 
   $sums = Grab 'SHA256SUMS' $false
@@ -89,7 +119,28 @@ try {
 
   # ---- unpack ----
   $stage = Join-Path $tmp 'app'
-  Expand-Archive -Path $zip -DestinationPath $stage -Force
+  Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+  $stageFull = [IO.Path]::GetFullPath($stage) + [IO.Path]::DirectorySeparatorChar
+  $z = [IO.Compression.ZipFile]::OpenRead($zip)
+  try {
+    $entries = @($z.Entries); $shown = -1; $done = 0
+    $total = ($entries | Measure-Object -Property Length -Sum).Sum
+    if (-not $total) { $total = 1 }
+    $label = L 'unpacking' '\uC555\uCD95 \uD478\uB294 \uC911'
+    foreach ($e in $entries) {
+      $dest = [IO.Path]::GetFullPath((Join-Path $stage $e.FullName))
+      if (-not $dest.StartsWith($stageFull, [StringComparison]::OrdinalIgnoreCase)) { Die "unsafe path in the archive: $($e.FullName)" }
+      if ($e.Name -eq '') { [void][IO.Directory]::CreateDirectory($dest) }
+      else {
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($dest))
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $dest, $true)
+      }
+      $done += $e.Length
+      $p = [math]::Floor($done * 100 / $total)
+      if ($p -ne $shown) { $shown = $p; Bar $label $p ("{0:N1}/{1:N1} MB" -f ($done / 1MB), ($total / 1MB)) }
+    }
+  } finally { $z.Dispose() }
+  Write-Host ''
   $root = $stage
   if (-not (Test-Path (Join-Path $root 'fiche.exe'))) {
     $inner = @(Get-ChildItem $stage -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'fiche.exe') }) | Select-Object -First 1
@@ -98,10 +149,11 @@ try {
   }
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
   # Files an older version left behind but this one no longer ships.
-  $keep = @(Get-ChildItem $root -Recurse -File | ForEach-Object { $_.FullName.Substring($root.Length).ToLower() })
+  $keep = New-Object 'System.Collections.Generic.HashSet[string]'
+  Get-ChildItem $root -Recurse -File | ForEach-Object { [void]$keep.Add($_.FullName.Substring($root.Length).ToLower()) }
   foreach ($f in @(Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue)) {
     $rel = $f.FullName.Substring($dir.Length).ToLower()
-    if ($keep -notcontains $rel) { Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue }
+    if (-not $keep.Contains($rel)) { Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue }
   }
   Copy-Item (Join-Path $root '*') $dir -Recurse -Force
   $ver = 'unknown'
@@ -141,5 +193,6 @@ try {
   }
 }
 finally {
+  $ProgressPreference = $oldProgress
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
