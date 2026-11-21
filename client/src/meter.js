@@ -42,6 +42,14 @@ function estPayload(p) {
   for (const m of p?.messages || []) for (const b of blocks(m.content)) t += estBlock(b);
   return t;
 }
+// System prompt + tool definitions. fiche leaves these as they are, so the savings rate shown to the
+// user is taken over the conversation part only (11-22: a 150k first turn with ~140k fixed read as -0%).
+function estFixed(p) {
+  let t = 0;
+  for (const s of blocks(p?.system)) t += estBlock(s);
+  if (Array.isArray(p?.tools)) t += txt(JSON.stringify(p.tools));
+  return t;
+}
 
 const day = at => new Date(at).toLocaleDateString('sv-SE'); // YYYY-MM-DD, local time
 const emitter = new EventEmitter();
@@ -65,20 +73,21 @@ function save() {
 }
 
 // One request went through the engine. `st` is the engine's stats object.
-function record({ before, after, st, model, ms, label }) {
+function record({ before, after, fixed, st, model, ms, label }) {
   const at = Date.now(), saved = Math.max(0, before - after);
+  const fx = Math.max(0, Math.min(fixed || 0, before, after)), convBefore = before - fx, convAfter = after - fx;
   const r = {
-    at, model: model || null, before, after, saved, ms: ms || 0,
+    at, model: model || null, before, after, saved, convBefore, convAfter, ms: ms || 0,
     imaged: st?.imaged || 0, movedInputs: st?.movedInputs || 0, movedReplies: st?.movedReplies || 0,
     cleared: st?.cleared || 0, images: st?.images || 0, conv: st?.conv || null, issue: st?.judgeStatus ? String(st.judgeStatus) : st?.refused || null,
   };
   recent.unshift(r); if (recent.length > 200) recent.pop();
   const d = (data.days[day(at)] ||= { before: 0, after: 0, requests: 0, imaged: 0 });
-  d.before += before; d.after += after; d.requests++; d.imaged += r.imaged; // 11-18: pages drawn for the first time (not every page re-sent each turn), and their pixels.
+  d.before += before; d.after += after; d.convBefore = (d.convBefore || 0) + convBefore; d.convAfter = (d.convAfter || 0) + convAfter; d.requests++; d.imaged += r.imaged; // 11-18: pages drawn for the first time (not every page re-sent each turn), and their pixels.
   d.pages = (d.pages || 0) + (st?.drawn || 0); d.px = (d.px || 0) + (st?.drawnPx || 0);
   if (r.conv) {
     const s = (data.sessions[r.conv] ||= { first: at, last: at, before: 0, after: 0, requests: 0, imaged: 0, lastBefore: 0, lastAfter: 0 });
-    s.last = at; s.before += before; s.after += after; s.requests++; s.imaged += r.imaged; s.lastBefore = before; s.lastAfter = after; s.model = r.model; s.pages = r.images; if (label) if (label) s.label = label;
+    s.last = at; s.before += before; s.after += after; s.convBefore = (s.convBefore || 0) + convBefore; s.convAfter = (s.convAfter || 0) + convAfter; s.requests++; s.imaged += r.imaged; s.lastBefore = before; s.lastAfter = after; s.lastConvBefore = convBefore; s.lastConvAfter = convAfter; s.model = r.model; s.pages = r.images; if (label) s.label = label;
   }
   save();
   emitter.emit('update', r);
@@ -89,14 +98,15 @@ function summary() {
   const today = day(Date.now()), month = today.slice(0, 7);
   const sum = keys => keys.reduce((a, k) => {
     const d = data.days[k];
-    return { before: a.before + d.before, after: a.after + d.after, requests: a.requests + d.requests, imaged: a.imaged + d.imaged };
-  }, { before: 0, after: 0, requests: 0, imaged: 0 });
+    return { before: a.before + d.before, after: a.after + d.after, requests: a.requests + d.requests, imaged: a.imaged + d.imaged,
+      convBefore: a.convBefore + (d.convBefore ?? d.before), convAfter: a.convAfter + (d.convAfter ?? d.after) };
+  }, { before: 0, after: 0, requests: 0, imaged: 0, convBefore: 0, convAfter: 0 });
   const days14 = [];
   for (let i = 13; i >= 0; i--) {
     const k = day(Date.now() - i * 864e5), d = data.days[k];
-    days14.push({ day: k, saved: d ? Math.max(0, d.before - d.after) : 0, before: d?.before || 0, after: d?.after || 0 });
+    days14.push({ day: k, saved: d ? Math.max(0, d.before - d.after) : 0, before: d?.before || 0, after: d?.after || 0, convBefore: d?.convBefore ?? d?.before ?? 0, convAfter: d?.convAfter ?? d?.after ?? 0 });
   }
-  const sessions = Object.entries(data.sessions).sort((a, b) => b[1].last - a[1].last).slice(0, 30).map(([id, s]) => ({ id, ...s }));
+  const sessions = Object.entries(data.sessions).sort((a, b) => b[1].last - a[1].last).slice(0, 30).map(([id, s]) => ({ id, convBefore: s.before, convAfter: s.after, ...s }));
   // Lifetime totals for the open-beta card and the early-tester table (days kept: 90).
   const allDays = Object.keys(data.days), total = allDays.reduce((a, k) => { const d = data.days[k];
     return { requests: a.requests + (d.requests || 0), imaged: a.imaged + (d.imaged || 0), pages: a.pages + (d.pages || 0), px: a.px + (d.px || 0) }; }, { requests: 0, imaged: 0, pages: 0, px: 0 });
@@ -115,4 +125,4 @@ function summary() {
   };
 }
 
-module.exports = { init, estPayload, record, summary, on: (ev, f) => emitter.on(ev, f) };
+module.exports = { init, estPayload, estFixed, record, summary, on: (ev, f) => emitter.on(ev, f) };

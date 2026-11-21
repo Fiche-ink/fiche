@@ -77,11 +77,11 @@ async function compress(buf) {
   try { payload = JSON.parse(buf.toString('utf8')); } catch { return null; }
   try {
     const E = await load();
-    const before = meter.estPayload(payload), label = projectOf(payload), t0 = Date.now();
+    const before = meter.estPayload(payload), fixed = meter.estFixed(payload), label = projectOf(payload), t0 = Date.now();
     const st = await E.applyV0(payload);
     const changed = st && !st.skipped && (st.imaged || st.movedInputs || st.movedReplies || st.cleared);
     // Unchanged requests go upstream as the original bytes, so they are metered at their original size.
-    if (st && !st.skipped) { try { meter.record({ before, after: changed ? meter.estPayload(payload) : before, st, model: payload.model, ms: Date.now() - t0, label }); } catch { } }
+    if (st && !st.skipped) { try { meter.record({ before, fixed, after: changed ? meter.estPayload(payload) : before, st, model: payload.model, ms: Date.now() - t0, label }); } catch { } }
     stats.runs++;
     if (!changed) return null;
     stats.imaged += st.imaged || 0; stats.imageTokens += st.imageTokens || 0; stats.textCharsImaged += st.textCharsImaged || 0;
