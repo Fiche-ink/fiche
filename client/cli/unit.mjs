@@ -15,6 +15,10 @@ const CLI = path.join(here, 'fiche.js');
 const node = process.execPath;
 
 let failures = 0;
+// The real ~/.claude/settings.json must come out of this run byte for byte as it went in.
+const REAL_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
+const snap = () => { try { return fs.readFileSync(REAL_SETTINGS, 'utf8'); } catch { return null; } };
+const realBefore = snap();
 async function test(name, fn) {
   try { await fn(); console.log('  ok   ' + name); }
   catch (e) { failures++; console.log('  FAIL ' + name + '\n       ' + String(e?.message || e).split('\n').join('\n       ')); }
@@ -71,25 +75,25 @@ await test('the launchd plist restarts a crash but respects a clean stop', async
 // The second daemon a service manager starts, while one is already running. It has to exit 0:
 // launchd (KeepAlive SuccessfulExit) and systemd (Restart=on-failure) restart a daemon that
 // fails, so a non-zero exit here is an endless restart loop a few seconds apart.
+// Anything that loads claude.js runs in unit-isolated.cjs, as a child process whose HOME and every
+// other home-like variable point at a fresh temp folder; it refuses to run otherwise.
+const isolated = name => new Promise(ok => {
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'fiche-iso-'));
+  const env = { PATH: process.env.PATH, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', FICHE_TEST_SANDBOX: box,
+    HOME: box, USERPROFILE: box, APPDATA: box, LOCALAPPDATA: box, XDG_CONFIG_HOME: path.join(box, '.config'),
+    XDG_DATA_HOME: path.join(box, '.local', 'share'), XDG_CACHE_HOME: path.join(box, '.cache'), XDG_STATE_HOME: path.join(box, '.local', 'state') };
+  fs.mkdirSync(path.join(box, '.claude'));
+  execFile(node, [path.join(here, 'unit-isolated.cjs'), name], { env, encoding: 'utf8', timeout: 60000 }, (err, out, errOut) => {
+    fs.rmSync(box, { recursive: true, force: true });
+    ok({ code: err ? (err.code ?? 1) : 0, out: String(out || '') + String(errOut || '') });
+  });
+});
+const expectIsolated = async name => { const r = await isolated(name); assert.equal(r.code, 0, r.out); };
+
+await test('NO_PROXY decides which upstreams skip the HTTPS_PROXY from Claude Code settings', () => expectIsolated('noProxy'));
 await test('the proxy moves to a spare port when 47321 is taken, and Claude Code settings follow', async () => {
-  const { createRequire } = await import('node:module');
-  const req = createRequire(import.meta.url), src = path.join(here, '..', 'app', 'src');
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'fiche-port-')), oldHome = process.env.HOME;
-  process.env.HOME = h; fs.mkdirSync(path.join(h, '.claude'));
-  const claude = req(path.join(src, 'claude.js')), { createProxy } = req(path.join(src, 'proxy.js'));
-  process.env.HOME = oldHome;
-  const blocker = net.createServer(); await new Promise(ok => blocker.listen(47321, '127.0.0.1', ok));
-  const p = createProxy(() => ({ proxyOn: false }));
-  try {
-    assert.equal(await p.listen(undefined), 47331);
-    const read = () => JSON.parse(fs.readFileSync(claude.FILE, 'utf8')).env?.ANTHROPIC_BASE_URL;
-    fs.writeFileSync(claude.FILE, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'http://localhost:9999' } }));
-    assert.equal(claude.connect('http://127.0.0.1:47321').prev, 'http://localhost:9999');
-    assert.equal(claude.connect('http://127.0.0.1:47331').prev, undefined, 'an old fiche port must not become the upstream');
-    assert.equal(read(), 'http://127.0.0.1:47331');
-    claude.disconnect('http://127.0.0.1:47321', 'http://localhost:9999');
-    assert.equal(read(), 'http://localhost:9999', 'uninstall passes the default port and must still restore');
-  } finally { await p.close(); blocker.close(); fs.rmSync(h, { recursive: true, force: true }); }
+  assert.equal(await portFree(), true, 'another fiche is using port 47321; stop it before running this');
+  await expectIsolated('portMove');
 });
 
 await test('a duplicate daemon exits cleanly instead of looping', async () => {
@@ -180,5 +184,6 @@ for (const lang of ['en_US.UTF-8', 'ko_KR.UTF-8']) {
 
 await run(['stop']);
 fs.rmSync(home, { recursive: true, force: true });
+if (snap() !== realBefore) { failures++; console.log('\n  FAIL the real ' + REAL_SETTINGS + ' changed during this run. Restore it from a backup now.'); }
 console.log(failures ? `\n${failures} failed` : '\nall passed');
 process.exit(failures ? 1 : 0);

@@ -7,6 +7,7 @@ const http = require('http'), https = require('https');
 const server = require('./server');
 const engine = require('./engine');
 const net = require('./net');
+const upproxy = require('./upproxy');
 
 const PORT = 47321;
 // Spares for when another program holds PORT; 47322 is the window UI. claude.js FICHE_URL must match.
@@ -63,7 +64,7 @@ function createProxy(getConfig, getInfo = async () => ({})) {
     const lib = up.protocol === 'http:' ? http : https;
     const out = lib.request({
       protocol: up.protocol, hostname: up.hostname, port: up.port || undefined,
-      method: req.method, path: basePath + req.url, headers,
+      method: req.method, path: basePath + req.url, headers, agent: upproxy.agentFor(up),
     }, upRes => {
       try { net.upstream({ host: up.hostname, path: basePath + req.url.split('?')[0], bytesIn: origLen, bytesOut: body.length, status: upRes.statusCode, ms: Date.now() - t0, compressed: body.length !== origLen }); } catch { }
       readLimits(upRes.headers); res.writeHead(upRes.statusCode, upRes.headers);
