@@ -1,0 +1,22 @@
+[package]
+name = "fiche"
+version = "0.1.0"
+description = "fiche window app: shows the fiche app screen in a window of its own"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+open = "5"
+sys-locale = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

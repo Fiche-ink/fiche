@@ -147,6 +147,31 @@ async function stats() {
   }
 }
 
+// ---- app screen ----
+async function screen() {
+  // From the SessionStart hook: never print (it would land in Claude's context), never fail.
+  if (flag('session')) {
+    try { if (await control.alive()) await control.send('ui:open', { session: true }, 5000); } catch { }
+    process.exit(0);
+  }
+  if (argv[1] === 'with-claude') {
+    const on = argv[2] === 'on';
+    if (!['on', 'off'].includes(argv[2])) die('fiche ui with-claude on|off');
+    const r = await ask('ui:with-claude', { on });
+    return console.log(on
+      ? T(`Claude Code를 시작하면 fiche 창도 같이 엽니다${r.hook ? '' : ' (창 앱이 설치되고 Claude Code가 연결되면 적용)'}.`, `fiche opens along with Claude Code${r.hook ? '' : ' (once the window app is installed and Claude Code is connected)'}.`)
+      : T('Claude Code와 같이 열지 않습니다.', 'fiche no longer opens with Claude Code.'));
+  }
+  if (!(await control.alive())) await start({ quiet: true });
+  if (flag('url')) return console.log((await ask('ui')).url);
+  const r = await ask('ui:open');
+  if (r.error) die(r.error);
+  if (r.opened === 'window') return console.log(T('fiche 창을 열었습니다.', 'Opened the fiche window.'));
+  if (r.opened === 'browser') return console.log(T('브라우저에서 열었습니다.', 'Opened it in your browser.'));
+  console.log(T('브라우저에서 이 주소를 여세요:', 'Open this address in a browser:'));
+  console.log(r.url);
+}
+
 async function netlog() {
   if (flag('daemon')) {
     const body = fs.existsSync(P.logFile) ? fs.readFileSync(P.logFile, 'utf8').split('\n') : [];
@@ -224,12 +249,19 @@ async function uninstall() {
     'Removed the login item, stopped the daemon and put Claude Code settings back.'));
   console.log(T('남은 파일을 지웁니다:', 'Delete the remaining files with:'));
   const bins = [path.join(P.home, '.local', 'bin', 'fiche'), P.launcher()].filter(f => { try { return fs.lstatSync(f).isSymbolicLink(); } catch { return false; } });
-  console.log(`  rm -rf ${[prefix, P.dataDir, path.join(P.home, '.cache', 'fiche-cc')].join(' ')}${bins.length ? ' ' + bins.join(' ') : ''}`);
+  // The window app lives outside the prefix: ~/Applications on macOS, the app menu entry on Linux,
+  // and on WSL2 a Windows folder plus a Start menu shortcut that install.sh listed.
+  const extra = [path.join(P.home, 'Applications', 'fiche.app'), path.join(P.home, '.local', 'share', 'applications', 'fiche.desktop'), path.join(P.home, '.local', 'share', 'icons', 'hicolor', '256x256', 'apps', 'fiche.png')];
+  try { extra.push(...fs.readFileSync(path.join(prefix, 'shell', 'windows-files'), 'utf8').split('\n').map(s => s.trim()).filter(Boolean)); } catch { }
+  const q = s => `'${s.replace(/'/g, `'\\''`)}'`;
+  const all = [prefix, P.dataDir, path.join(P.home, '.cache', 'fiche-cc'), ...extra.filter(f => fs.existsSync(f)), ...bins];
+  console.log(`  rm -rf ${all.map(q).join(' ')}`);
 }
 
 const HELP = () => T(`fiche ${P.version()} · Claude Code 문맥 압축
 
   fiche                    상태를 봅니다
+  fiche ui                     앱 화면 열기 (with-claude on|off: Claude Code와 같이 열기)
   fiche start | stop | restart
   fiche login | logout
   fiche connect | disconnect   Claude Code의 settings.json 연결
@@ -244,6 +276,7 @@ const HELP = () => T(`fiche ${P.version()} · Claude Code 문맥 압축
 `, `fiche ${P.version()} · context compression for Claude Code
 
   fiche                    show status
+  fiche ui                     open the app screen (with-claude on|off: open with Claude Code)
   fiche start | stop | restart
   fiche login | logout
   fiche connect | disconnect   point Claude Code's settings.json at fiche
@@ -266,6 +299,7 @@ async function main() {
     case 'restart': await stop({ quiet: true }); return start({});
     case 'status': case 'st': return status();
     case 'login': return login();
+    case 'ui': return screen();
     case 'logout': await ask('logout'); return console.log(T('로그아웃했습니다.', 'Signed out.'));
     case 'connect': await ask('connect'); return console.log(T('Claude Code를 연결했습니다. 열려 있는 창은 다시 시작해야 적용됩니다.', 'Connected. Claude Code windows that are already open pick it up after a restart.'));
     case 'disconnect': await ask('disconnect'); return console.log(T('연결을 끊고 설정을 되돌렸습니다.', 'Disconnected and put the settings back.'));

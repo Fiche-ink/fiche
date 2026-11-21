@@ -1,0 +1,113 @@
+# Builds the fiche window app (client/shell, Tauri) that shows the CLI's app screen in a window
+# of its own. It runs here, in the public repository, because the window app holds nothing
+# private and public repositories get macOS and Windows runners for free.
+#
+# Push a tag window-v<version> to publish a release with the four builds and their SHA256SUMS.
+# install.sh pins that tag (WINDOW_TAG), so the release is never marked "latest": the CLI's
+# releases/latest/download/ links must keep pointing at the CLI release.
+name: window app
+
+on:
+  push:
+    tags: ['window-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            out: fiche-window-macos.zip
+          - os: windows-latest
+            out: fiche-window-windows-x64.tar.gz
+          - os: ubuntu-22.04
+            out: fiche-window-linux-x64.tar.gz
+          - os: ubuntu-22.04-arm
+            out: fiche-window-linux-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: client/shell
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/shell/src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # macOS: an ad-hoc signed universal .app (tauri.conf.json signingIdentity "-").
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app
+
+      # Windows and Linux: the bare executable; install.sh adds the shortcut or menu entry.
+      - name: Build
+        if: runner.os != 'macOS'
+        run: npx --yes @tauri-apps/cli@2 build --no-bundle
+
+      - name: Package
+        run: |
+          mkdir -p out
+          case "$RUNNER_OS" in
+            macOS)
+              ditto -c -k --keepParent src-tauri/target/universal-apple-darwin/release/bundle/macos/fiche.app "out/${{ matrix.out }}" ;;
+            Windows)
+              tar czf "out/${{ matrix.out }}" -C src-tauri/target/release fiche.exe ;;
+            Linux)
+              cp src-tauri/icons/128x128@2x.png src-tauri/target/release/fiche.png
+              tar czf "out/${{ matrix.out }}" -C src-tauri/target/release fiche fiche.png ;;
+          esac
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: client/shell/out/${{ matrix.out }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/window-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum fiche-window-* > SHA256SUMS
+          cat SHA256SUMS
+          {
+            echo "fiche window app ${GITHUB_REF_NAME#window-}: the app screen of the fiche CLI in a window of its own."
+            echo "install.sh installs it; there is nothing to download by hand."
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" fiche-window-* SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "window app ${GITHUB_REF_NAME#window-}" \
+            --notes-file notes.md --latest=false

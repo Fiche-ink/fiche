@@ -68,6 +68,16 @@ function stage(target) {
   cp(engineFile(), path.join(dir, 'engine', 'v0.mjs'));
   for (const f of fs.readdirSync(path.join(app, 'vendor'))) cp(path.join(app, 'vendor', f), path.join(dir, 'vendor', f));
 
+  // 3b. the app screen (cli/ui.js serves it; the installer screen is Windows-only)
+  const copyUi = (from, to) => {
+    for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+      if (e.name.includes('.bak') || /^setup\./.test(e.name)) continue;
+      if (e.isDirectory()) copyUi(path.join(from, e.name), path.join(to, e.name));
+      else cp(path.join(from, e.name), path.join(to, e.name));
+    }
+  };
+  copyUi(path.join(desktop, 'ui'), path.join(dir, 'ui'));
+
   // 4. the renderer: wrapper JS plus this target's binding
   const cdir = path.join(app, 'node_modules', '@napi-rs', 'canvas');
   for (const f of CANVAS_JS) if (fs.existsSync(path.join(cdir, f))) cp(path.join(cdir, f), path.join(dir, 'node_modules', '@napi-rs', 'canvas', f));

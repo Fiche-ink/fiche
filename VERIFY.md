@@ -63,6 +63,9 @@ The macOS, Linux and WSL2 build runs the same modules with no Electron at all. I
 | `cli/install.sh` | The installer behind `curl -fsSL https://fiche.ink/install.sh \| sh` |
 | `cli/install.ps1` | The Windows installer behind `irm https://fiche.ink/install.ps1 \| iex`: it unpacks the zip build and lets the app register itself |
 | `cli/pack.mjs` | Builds the release tarballs |
+| `cli/ui.js`, `cli/bridge.js` | The app screen (`fiche ui`): the Windows app's screen, served on `127.0.0.1:47322`. Every request needs a token kept in a `0600` file in your config folder, and the server answers only to its own address and origin |
+| `cli/hook.js`, `cli/window.js` | While Claude Code is connected and the window app is installed, a `SessionStart` hook in Claude Code's `settings.json` opens the screen when a session starts (`fiche ui with-claude off` removes it); finding and starting the window app; desktop notifications |
+| `shell/` | The window app (Tauri): a window and tray icon around that screen, built by `.github/workflows/window.yml`. It has no network code of its own, loads only `127.0.0.1`, and sends other links to your browser |
 
 Two differences from the app are worth knowing. Without Electron there is no `safeStorage`, so the account key is a file with `0600` permissions in your config folder instead of being encrypted with your login credentials. And nothing in the release is signed by a certificate: `install.sh` verifies each download against the `SHA256SUMS` file published with the release, and the same hashes are printed in the release notes.
 

@@ -6,6 +6,7 @@
 // `fiche <command>` talks to this process over a unix socket (cli/control.js).
 const fs = require('fs'), path = require('path'), os = require('os');
 const P = require('./paths'), control = require('./control'), plat = require('./platform');
+const ui = require('./ui'), hook = require('./hook'), win = require('./window'), service = require('./service');
 
 const C = P.clientDir();
 const req = name => require(path.join(C, name + '.js'));
@@ -36,6 +37,11 @@ function saveCfg() {
 let proxyError = null, quitting = false;
 const proxy = createProxy(() => cfg, async () => ({ version: P.version(), cli: true }));
 
+// Screen language: `fiche ui`'s own switch (cfg.lang), else the shell's locale.
+const lang = () => cfg.lang === 'en' || cfg.lang === 'ko' ? cfg.lang
+  : /^ko/i.test(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '') ? 'ko' : 'en';
+const T = (ko, en) => lang() === 'en' ? en : ko;
+
 // ---- Claude Code connection ----
 function setClaude(on) {
   if (on) {
@@ -43,6 +49,17 @@ function setClaude(on) {
     if (prev !== undefined) cfg.upstream = prev; // null = Anthropic directly
   } else claude.disconnect(PROXY_URL, cfg.upstream);
   cfg.connected = on; saveCfg();
+  syncHook();
+}
+
+// The SessionStart hook is there exactly while Claude Code is connected, the window app is
+// installed and "open with Claude Code" is on.
+function syncHook() {
+  const want = !!cfg.connected && cfg.openWithClaude !== false && !!win.find();
+  try {
+    if (want && !hook.installed()) hook.add();
+    else if (!want && hook.installed()) hook.remove();
+  } catch (e) { log('hook:', e.message); }
 }
 
 // Claude Code is installed if its config folder exists or `claude` is on PATH
@@ -60,9 +77,36 @@ function autoConnect() {
   if (cfg.autoConnect === false || proxyError) return;
   let on;
   try { on = claude.isConnected(PROXY_URL); } catch { return; }
-  if (on) { if (!cfg.connected) { cfg.connected = true; saveCfg(); } return; }
+  if (on) { if (!cfg.connected) { cfg.connected = true; saveCfg(); } syncHook(); return; }
   if (!claudeInstalled()) return;
-  try { setClaude(true); log('connected Claude Code:', claude.FILE); } catch (e) { log('auto connect failed:', e.message); }
+  try { setClaude(true); log('connected Claude Code:', claude.FILE); } catch (e) { log('auto connect failed:', e.message); return; }
+  ui.broadcast('claude:update', true);
+  win.notify(T('Claude Code 자동 연결', 'Claude Code connected'),
+    T('자동으로 연결됐습니다. 열려 있는 Claude Code 창은 다시 시작해야 적용됩니다.', 'fiche connected automatically. Claude Code windows that are already open pick it up after a restart.'));
+}
+
+// "Start at login" is the service (cli/service.js). Asking launchctl or systemctl takes a few
+// milliseconds and the screen polls status, so the answer is kept for a while.
+let autostartCache = null;
+async function autostart() {
+  if (autostartCache && Date.now() - autostartCache.at < 15000) return autostartCache.on;
+  let on = false;
+  try { on = !!(await service.state()).on; } catch { }
+  autostartCache = { on, at: Date.now() };
+  return on;
+}
+
+// Installing or removing the service restarts this daemon (cli/fiche.js `service`), so it runs
+// in a process of its own: detached for launchd and the shell rc file, and in a transient unit
+// for systemd, which would otherwise stop it along with everything else in fiche.service.
+async function setAutostart(on) {
+  const sub = on ? 'install' : 'uninstall';
+  const kind = await service.kind();
+  const ok = kind === 'systemd'
+    ? await plat.spawnOk('systemd-run', ['--user', '--collect', '--quiet', P.launcher(), 'service', sub])
+    : await plat.spawnOk(P.launcher(), ['service', sub]);
+  if (ok) autostartCache = { on, at: Date.now() };
+  return status();
 }
 
 async function status() {
@@ -78,8 +122,51 @@ async function status() {
     server: { base: server.BASE, ...server.lastStatus() },
     stats: proxy.stats, engine: engine.info(), contrib: cfg.contrib !== false,
     plan: cfg.plan || null, account: account.info(), limits: proxy.limits(),
+    autostart: await autostart(), window: !!win.find(), openWithClaude: cfg.openWithClaude !== false,
     dataDir: P.dataDir, logFile: P.logFile,
   };
+}
+
+// ---- app screen (cli/ui.js) ----
+// window.fiche calls from the screen. Same names and results as the Windows app's ipcMain handlers.
+async function uiCall(method, arg) {
+  switch (method) {
+    case 'status': return status();
+    case 'win': return null;
+    case 'lang:set': if (arg === 'ko' || arg === 'en') { cfg.lang = arg; saveCfg(); } return lang();
+    case 'proxy:set': return handle('proxy', { on: !!arg });
+    case 'claude:set': return handle(arg ? 'connect' : 'disconnect');
+    case 'autostart:set': return setAutostart(!!arg);
+    case 'contrib:set': return handle('contrib', { on: !!arg });
+    case 'plan:set': return handle('plan', { plan: arg });
+    case 'account:signin':
+      try { await account.signIn(u => { plat.openUrl(u); }); }
+      catch (e) { return { ...(await status()), signInError: String(e?.message || e) }; }
+      await afterSignIn();
+      return status();
+    case 'account:cancel': account.cancelSignIn(); return status();
+    case 'account:signout': return handle('logout');
+    case 'account:refresh': return handle('refresh');
+    case 'stats:get': return meter.summary();
+    case 'page:latest': return engine.latestPage();
+    case 'netlog:get': return net.list();
+    case 'open:external': if (typeof arg === 'string' && /^https:\/\//.test(arg)) await plat.openUrl(arg); return null;
+    default: throw Object.assign(new Error('unknown method'), { code: 'EUNKNOWN' });
+  }
+}
+
+// `fiche ui`: the window app if it is installed, else the browser. From the SessionStart hook
+// (session: true) only the window app, and only when no screen is open yet, so starting more
+// Claude Code sessions does not pull fiche to the front each time.
+async function openScreen(session) {
+  const url = ui.url();
+  if (!url) return { error: 'screen not running' };
+  if (session) {
+    if (cfg.openWithClaude === false || ui.viewers() > 0 || !win.find()) return { opened: false };
+    return { opened: await win.launch(url) };
+  }
+  if (await win.launch(url)) return { opened: 'window' };
+  return { opened: (await plat.openUrl(url)) ? 'browser' : false, url };
 }
 
 // ---- account ----
@@ -145,6 +232,9 @@ async function handle(action, args) {
     case 'stats': return meter.summary();
     case 'netlog': return net.list().slice(0, args.limit || 30);
     case 'page': return engine.latestPage();
+    case 'ui': return { url: ui.url(), window: win.find()?.path || null, viewers: ui.viewers(), openWithClaude: cfg.openWithClaude !== false };
+    case 'ui:open': return openScreen(!!args.session);
+    case 'ui:with-claude': cfg.openWithClaude = !!args.on; saveCfg(); syncHook(); return { openWithClaude: cfg.openWithClaude, hook: hook.installed() };
     case 'quit': setTimeout(() => shutdown(0), 50); return { ok: true };
     default: return { error: 'unknown_action' };
   }
@@ -158,6 +248,8 @@ async function shutdown(code) {
   try { await engine.flush(); } catch { }
   // Claude Code cannot reach a closed proxy, so settings.json goes back while fiche is not running.
   if (cfg.connected) { try { claude.disconnect(PROXY_URL, cfg.upstream); log('restored', claude.FILE); } catch (e) { log('restore failed:', e.message); } }
+  try { hook.remove(); } catch { }
+  try { ui.close(); } catch { }
   try { srv?.close(); } catch { }
   try { await proxy.close(); } catch { }
   try { fs.rmSync(P.pidFile, { force: true }); } catch { }
@@ -169,6 +261,8 @@ async function main() {
   loadCfg();
   account.init(P.dataDir, null); // no Electron safeStorage: the key file is written 0600 (account.js)
   meter.init(P.dataDir);
+  // Someone upgrading from a CLI without notifications has had their first trimmed request long ago.
+  if (!cfg.firstSavedNotified) { try { if ((meter.summary().total?.imaged || 0) > 0) { cfg.firstSavedNotified = true; saveCfg(); } } catch { } }
   try { engine.setup(cfg, account.key()); saveCfg(); engine.load().catch(e => log('engine load:', e.message)); }
   catch (e) { log('engine setup failed:', e.message); }
 
@@ -186,12 +280,27 @@ async function main() {
     log('proxy failed:', proxyError);
   }
   fs.writeFileSync(P.pidFile, String(process.pid));
+  try { log('screen on', (await ui.listen({ call: uiCall, lang, log })).replace(/\?t=.*/, '')); }
+  catch (e) { log('screen failed:', e.message); }
+
+  account.on('change', a => ui.broadcast('account:update', a));
+  net.on('sent', e => ui.broadcast('netlog:update', e));
+  meter.on('update', r => {
+    if (r.saved > 0) log(`request ${r.before} -> ${r.after} tokens (-${Math.round(r.saved / (r.before || 1) * 100)}%)`);
+    ui.broadcast('stats:update', r);
+    if (r.saved > 0 && !cfg.firstSavedNotified) {
+      cfg.firstSavedNotified = true; saveCfg();
+      const pct = Math.round((r.saved / (r.before || 1)) * 100), loc = lang() === 'en' ? 'en-US' : 'ko-KR';
+      win.notify(T('fiche · 첫 요청을 줄였습니다', 'fiche · First request trimmed'),
+        T(`${r.before.toLocaleString(loc)} → ${r.after.toLocaleString(loc)} 토큰 (-${pct}%). 이제 조용히 계속 줄입니다.`,
+          `${r.before.toLocaleString(loc)} → ${r.after.toLocaleString(loc)} tokens (-${pct}%). fiche keeps going quietly in the background.`));
+    }
+  });
 
   autoConnect();
   setInterval(autoConnect, 30000).unref?.();
   if (account.signedIn()) afterSignIn().catch(() => { });
   setInterval(reportUsage, 6 * 3600e3).unref?.();
-  meter.on('update', r => { if (r.saved > 0) log(`request ${r.before} -> ${r.after} tokens (-${Math.round(r.saved / (r.before || 1) * 100)}%)`); });
 
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => shutdown(0));
   process.on('uncaughtException', e => { log('uncaught:', e?.stack || e); });

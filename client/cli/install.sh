@@ -14,8 +14,10 @@
 #   FICHE_BINDIR     where `fiche` is linked   (default ~/.local/bin)
 #   FICHE_VERSION    release tag, e.g. v1.0.1  (default: the latest release)
 #   FICHE_BASE_URL   where to fetch from       (default: the GitHub release)
+#   FICHE_WINDOW_VERSION  window app release tag (default below)
 #   --no-service     do not start fiche at login
 #   --no-start       do not start the daemon now
+#   --no-window      do not install the window app (fiche ui then opens in the browser)
 set -eu
 
 REPO=${FICHE_REPO:-fiche-ink/fiche}
@@ -25,11 +27,14 @@ NODE_MAJOR_MIN=20
 NODE_SERIES=${FICHE_NODE_SERIES:-v22.x}
 DO_SERVICE=1
 DO_START=1
+DO_WINDOW=1
+WINDOW_TAG=${FICHE_WINDOW_VERSION:-window-v0.1.0}
 
 for arg in "$@"; do
   case "$arg" in
     --no-service) DO_SERVICE=0 ;;
     --no-start) DO_START=0 ;;
+    --no-window) DO_WINDOW=0 ;;
     --prefix=*) PREFIX=${arg#--prefix=} ;;
     --version=*) FICHE_VERSION=${arg#--version=} ;;
     -h|--help) sed -n '2,20p' "$0" 2>/dev/null || true; exit 0 ;;
@@ -187,6 +192,76 @@ if ! LC_ALL=C LANG=C "$BINDIR/fiche" doctor >"$tmp/doctor.txt" 2>&1; then
   die "this build does not run on this machine"
 fi
 
+# ---- the window app ----
+# `fiche ui` shows the app screen in a window of its own (shell/ in the source, built with Tauri
+# from the public repo). Optional: without it, `fiche ui` opens the same screen in the browser.
+# Like the CLI it is not signed; fetched here rather than through a browser, it carries no
+# quarantine flag (macOS) or mark of the web (Windows), so it opens without a warning.
+win_ok=0
+win_cmd() { (cd /mnt/c 2>/dev/null && /mnt/c/Windows/System32/cmd.exe /c "$1" 2>/dev/null | tr -d '\r'); }
+install_window() {
+  wbase=${FICHE_WINDOW_BASE_URL:-https://github.com/$REPO/releases/download/$WINDOW_TAG}
+  if [ "$is_wsl" = 1 ]; then wasset=fiche-window-windows-x64.tar.gz
+  elif [ "$plat" = darwin ]; then wasset=fiche-window-macos.zip
+  elif [ "$libc" = gnu ]; then wasset="fiche-window-linux-$arch.tar.gz"
+  else return 1; fi
+  if [ "$plat" = linux ] && [ "$is_wsl" = 0 ]; then
+    # It draws with the system's WebKitGTK; desktop installs have it, servers usually do not.
+    { ldconfig -p 2>/dev/null || /sbin/ldconfig -p 2>/dev/null; } | grep -q 'libwebkit2gtk-4\.1\.so\.0' || {
+      say "fiche: no window app here (it needs libwebkit2gtk-4.1); fiche ui opens in the browser"; return 1; }
+  fi
+  fetch "$wbase/$wasset" "$tmp/$wasset" && fetch "$wbase/SHA256SUMS" "$tmp/window.sums" || { err "could not download the window app"; return 1; }
+  wwant=$(grep " $wasset\$" "$tmp/window.sums" | cut -d' ' -f1 | head -1)
+  wgot=$(sha256_of "$tmp/$wasset")
+  { [ -n "$wwant" ] && [ "$wwant" = "$wgot" ]; } || { err "window app checksum mismatch; skipped"; return 1; }
+
+  if [ "$plat" = darwin ]; then
+    rm -rf "$tmp/window" && mkdir -p "$tmp/window" "$HOME/Applications"
+    ditto -x -k "$tmp/$wasset" "$tmp/window" && [ -d "$tmp/window/fiche.app" ] || return 1
+    rm -rf "$HOME/Applications/fiche.app"
+    mv "$tmp/window/fiche.app" "$HOME/Applications/fiche.app" || return 1
+    xattr -dr com.apple.quarantine "$HOME/Applications/fiche.app" 2>/dev/null || true
+    return 0
+  fi
+
+  mkdir -p "$PREFIX/shell"
+  if [ "$is_wsl" = 1 ]; then
+    # A Windows window for fiche inside WSL: it reaches the daemon through WSL's localhost forwarding.
+    la=$(win_cmd 'echo %LOCALAPPDATA%'); ap=$(win_cmd 'echo %APPDATA%')
+    { [ -n "$la" ] && [ -n "$ap" ] && have wslpath; } || return 1
+    wdir="$(wslpath -u "$la")/Programs/fiche-wsl"
+    mkdir -p "$wdir" && tar xzf "$tmp/$wasset" -C "$wdir" || { err "could not unpack the window app (is it open? close it and run the installer again)"; return 1; }
+    printf '%s\n' "$wdir/fiche.exe" > "$PREFIX/shell/windows-exe"
+    lnk="$(wslpath -u "$ap")/Microsoft/Windows/Start Menu/Programs/fiche (WSL).lnk"
+    FW_TARGET=$(wslpath -w "$wdir/fiche.exe") FW_LNK=$(wslpath -w "$lnk") \
+    FW_ARGS="--url-cmd wsl.exe -d ${WSL_DISTRO_NAME:-} -e $PREFIX/current/bin/fiche ui --url" WSLENV=FW_TARGET:FW_LNK:FW_ARGS \
+      /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -NonInteractive -Command \
+      '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:FW_LNK); $s.TargetPath = $env:FW_TARGET; $s.Arguments = $env:FW_ARGS; $s.IconLocation = $env:FW_TARGET; $s.Save()' \
+      >/dev/null 2>&1 || err "could not add the Start menu shortcut"
+    printf '%s\n%s\n' "$wdir" "$lnk" > "$PREFIX/shell/windows-files"
+    return 0
+  fi
+
+  tar xzf "$tmp/$wasset" -C "$PREFIX/shell" && chmod +x "$PREFIX/shell/fiche" || return 1
+  apps="$HOME/.local/share/applications"; icons="$HOME/.local/share/icons/hicolor/256x256/apps"
+  mkdir -p "$apps" "$icons"
+  [ -f "$PREFIX/shell/fiche.png" ] && cp "$PREFIX/shell/fiche.png" "$icons/fiche.png"
+  cat > "$apps/fiche.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=fiche
+Comment=Context compression for Claude Code
+Exec="$PREFIX/shell/fiche" --url-cmd "$PREFIX/current/bin/fiche" ui --url
+Icon=fiche
+Terminal=false
+Categories=Development;
+DESKTOP
+  return 0
+}
+if [ "$DO_WINDOW" = 1 ]; then
+  if install_window; then win_ok=1; say "fiche: window app installed"; fi
+fi
+
 # The login item comes first: launchd and systemd start the daemon themselves, so starting one
 # here as well would leave two copies fighting over the port.
 if [ "$DO_SERVICE" = 1 ] || [ "${had_service:-0}" != 0 ]; then
@@ -194,6 +269,14 @@ if [ "$DO_SERVICE" = 1 ] || [ "${had_service:-0}" != 0 ]; then
 fi
 # Quiet: the login item above usually started it already, and the next steps are printed below.
 if [ "$DO_START" = 1 ]; then "$BINDIR/fiche" start --quiet || err "could not start the daemon"; fi
+
+# Open the window so signing in is one click. Not over SSH: the screen is on the other end.
+opened=0
+if [ "$win_ok" = 1 ] && [ "$DO_START" = 1 ] && [ -z "${SSH_CONNECTION:-}" ]; then
+  if [ "$plat" = darwin ] || [ "$is_wsl" = 1 ] || [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    "$BINDIR/fiche" ui >/dev/null 2>&1 && opened=1 || true
+  fi
+fi
 
 # ---- what to do next ----
 say ""
@@ -203,7 +286,13 @@ case ":$PATH:" in
      say "    echo 'export PATH=\"\$PATH:$BINDIR\"' >> ~/.profile"
      say "" ;;
 esac
+if [ "$opened" = 1 ]; then
+  say "  fiche is open in its own window: sign in there to start compressing."
+  say "  Open it again with: fiche ui"
+  say ""
+fi
 say "  fiche login     sign in (needed before anything is compressed)"
+say "  fiche ui        the app screen"
 say "  fiche status    what it is doing"
 say "  fiche stats     what it saved"
 if [ "$is_wsl" = 1 ]; then

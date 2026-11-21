@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>fiche</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: #f6f5f1; color: #1f2328; }
+  @media (prefers-color-scheme: dark) { html, body { background: #161618; color: #e8e8e8; } code { background: #2a2a2e !important; } }
+  main { height: 100%; display: grid; place-items: center; text-align: center; padding: 0 32px; box-sizing: border-box; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p { margin: 4px 0; opacity: .8; }
+  code { background: #e9e7e0; padding: 2px 6px; border-radius: 4px; }
+  .fail, body.failed .wait { display: none; }
+  body.failed .fail { display: block; }
+</style>
+</head>
+<body>
+<main>
+  <div class="wait"><p id="wait">fiche…</p></div>
+  <div class="fail">
+    <h1 id="h"></h1>
+    <p id="p1"></p>
+    <p><code>fiche start</code></p>
+  </div>
+</main>
+<script>
+  const ko = /^ko/i.test(navigator.language || '');
+  document.getElementById('wait').textContent = ko ? 'fiche를 여는 중입니다…' : 'Opening fiche…';
+  document.getElementById('h').textContent = ko ? 'fiche를 찾지 못했습니다' : 'fiche is not running';
+  document.getElementById('p1').textContent = ko ? '터미널에서 다음을 실행한 뒤 이 창을 다시 여세요.' : 'Run this in a terminal, then open this window again.';
+</script>
+</body>
+</html>
