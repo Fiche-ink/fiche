@@ -5,6 +5,8 @@ const fs = require('fs'), path = require('path'), os = require('os');
 
 const FILE = path.join(os.homedir(), '.claude', 'settings.json');
 const BAK = FILE + '.fiche-bak';
+// Any fiche proxy address (proxy.js PORTS), so a moved port is still recognised as ours.
+const FICHE_URL = /^http:\/\/127\.0\.0\.1:(47321|4733[1-9])$/;
 // Claude Code's thread mode sends only new messages and keeps the history on Anthropic's side, so the proxy
 // never sees (or compresses) it. "0" turns it off; the marker file says fiche added it and removes it on disconnect.
 const TETHER = 'CLAUDE_CODE_TETHER_LIVE', TETHER_MARK = FILE + '.fiche-tether';
@@ -35,12 +37,14 @@ function connect(url) {
     fs.writeFileSync(TETHER_MARK, '');
   }
   write(s);
-  return { prev: prev || null };
+  // An old fiche port is not an upstream; the caller keeps the one it remembered.
+  return { prev: FICHE_URL.test(prev || '') ? undefined : prev || null };
 }
 
 function disconnect(url, prev) {
   const s = read();
-  if (s.env?.ANTHROPIC_BASE_URL !== url) return;
+  const cur = s.env?.ANTHROPIC_BASE_URL;
+  if (cur !== url && !FICHE_URL.test(cur || '')) return;
   if (prev) s.env.ANTHROPIC_BASE_URL = prev;
   else delete s.env.ANTHROPIC_BASE_URL;
   if (fs.existsSync(TETHER_MARK)) { if (s.env[TETHER] === '0') delete s.env[TETHER]; fs.unlinkSync(TETHER_MARK); }

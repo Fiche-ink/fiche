@@ -20,7 +20,11 @@ function root() {
   return here.includes('app.asar') ? here.replace('app.asar', 'app.asar.unpacked') : here;
 }
 
+const KEEP = [14, 30, 0];
+let keepDays = 30;
 function setup(cfg, token) {
+  if (KEEP.includes(cfg.keepDays)) keepDays = cfg.keepDays;
+  if (mod?.CFG) mod.CFG.keepDays = keepDays;
   fs.mkdirSync(CACHE, { recursive: true });
   fs.writeFileSync(JUDGE_FLAG, JUDGE_URL + '\n');
   // One switch (handoff 4.3): data contribution. On, the engine sends outcome signals and the
@@ -44,7 +48,7 @@ function setToken(token) {
 function load() {
   if (mod) return Promise.resolve(mod);
   loading ||= import(pathToFileURL(path.join(root(), 'engine', 'v0.mjs')).href)
-    .then(m => { m.setNet?.(net.request); return (mod = m); })
+    .then(m => { if (m.CFG) m.CFG.keepDays = keepDays; m.setNet?.(net.request); return (mod = m); })
     .catch(e => { lastError = 'engine load: ' + (e?.message || e); loading = null; throw e; });
   return loading;
 }
@@ -75,9 +79,11 @@ async function compress(buf) {
     const E = await load();
     const before = meter.estPayload(payload), label = projectOf(payload), t0 = Date.now();
     const st = await E.applyV0(payload);
-    if (st && !st.skipped) { try { meter.record({ before, after: meter.estPayload(payload), st, model: payload.model, ms: Date.now() - t0, label }); } catch { } }
+    const changed = st && !st.skipped && (st.imaged || st.movedInputs || st.movedReplies || st.cleared);
+    // Unchanged requests go upstream as the original bytes, so they are metered at their original size.
+    if (st && !st.skipped) { try { meter.record({ before, after: changed ? meter.estPayload(payload) : before, st, model: payload.model, ms: Date.now() - t0, label }); } catch { } }
     stats.runs++;
-    if (!st || st.skipped || !(st.imaged || st.movedInputs || st.movedReplies || st.cleared)) return null;
+    if (!changed) return null;
     stats.imaged += st.imaged || 0; stats.imageTokens += st.imageTokens || 0; stats.textCharsImaged += st.textCharsImaged || 0;
     return Buffer.from(JSON.stringify(payload));
   } catch (e) {

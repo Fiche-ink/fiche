@@ -12,6 +12,7 @@ const api = {
   setAutostart: on => ipcRenderer.invoke('autostart:set', on),
   setContrib: on => ipcRenderer.invoke('contrib:set', on),
   setPlan: plan => ipcRenderer.invoke('plan:set', plan),
+  setKeep: days => ipcRenderer.invoke('keep:set', days),
   signIn: () => ipcRenderer.invoke('account:signin'),
   cancelSignIn: () => ipcRenderer.invoke('account:cancel'),
   signOut: () => ipcRenderer.invoke('account:signout'),
@@ -50,6 +51,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   // ui/i18n.js keeps the Korean label in data-ko-aria-label when it shows English, so match either.
   const q = sel => document.querySelector(sel.replace(/\[aria-label="([^"]*)"\]/g, (m, v) => `:is([data-ko-aria-label="${v}"],[aria-label="${v}"])`));
 
+  const addr = document.getElementById('proxyAddr');
+  if (addr && s.port) addr.textContent = '127.0.0.1:' + s.port;
+  if (s.portMovedFrom && s.proxyListening !== false) {
+    const d = document.getElementById('proxyDesc');
+    if (d) d.textContent = L(`${s.portMovedFrom}번 포트를 다른 프로그램이 쓰고 있어 ${s.port}번으로 옮겼습니다. 이미 열려 있던 Claude Code는 다시 시작하세요.`, `Port ${s.portMovedFrom} is used by another program, so fiche moved to ${s.port}. Restart any Claude Code that was already open.`);
+  }
   // The proxy could not start (port taken): say so instead of showing "Running".
   if (s.proxyListening === false) {
     const badge = document.getElementById('proxyBadge');
@@ -68,8 +75,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   bind(ccSw, s.connected, async on => { const r = await api.setClaude(on); ccPaint(r); return r.connected; });
   api.onClaude(async on => { ccSw?._fsync?.(on); ccPaint(await api.status()); });
   bind(q('[aria-label="자동 실행"]'), s.autostart, async on => (await api.setAutostart(on)).autostart);
+  // The page's toast lives in another JS world here, so drive its element directly.
+  const note = msg => { const t = document.getElementById('toast'); if (!t) return; t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 4000); };
   const contribSw = q('[aria-label="데이터 기여"]');
-  bind(contribSw, s.contrib, async on => (await api.setContrib(on)).contrib);
+  bind(contribSw, s.contrib, async on => { const r = await api.setContrib(on); if (r.profileError) note(L('서버에 저장하지 못해 바꾸지 않았습니다. 잠시 뒤 다시 시도하세요.', 'Could not save to the server, so nothing changed. Try again shortly.')); return r.contrib; });
   // The server keeps the account's choice; follow it when it arrives after sign-in.
   api.onAccount?.(a => { const v = a?.me?.film?.contrib; if (typeof v === 'boolean') contribSw?._fsync?.(v); });
 });

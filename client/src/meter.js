@@ -70,7 +70,7 @@ function record({ before, after, st, model, ms, label }) {
   const r = {
     at, model: model || null, before, after, saved, ms: ms || 0,
     imaged: st?.imaged || 0, movedInputs: st?.movedInputs || 0, movedReplies: st?.movedReplies || 0,
-    cleared: st?.cleared || 0, images: st?.images || 0, conv: st?.conv || null,
+    cleared: st?.cleared || 0, images: st?.images || 0, conv: st?.conv || null, issue: st?.judgeStatus ? String(st.judgeStatus) : st?.refused || null,
   };
   recent.unshift(r); if (recent.length > 200) recent.pop();
   const d = (data.days[day(at)] ||= { before: 0, after: 0, requests: 0, imaged: 0 });

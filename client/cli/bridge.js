@@ -28,6 +28,7 @@
     setAutostart: v => call('autostart:set', v),
     setContrib: v => call('contrib:set', v),
     setPlan: plan => call('plan:set', plan),
+    setKeep: days => call('keep:set', days),
     signIn: () => call('account:signin'),
     cancelSignIn: () => call('account:cancel'),
     signOut: () => call('account:signout'),
@@ -71,6 +72,12 @@
     { const v = [...document.querySelectorAll('.item')].find(i => i.querySelector('b')?.textContent.trim() === (api.lang === 'en' ? 'Version' : '버전')); const m = v?.querySelector('.mono'); if (m) m.textContent = s.version; }
     const q = sel => document.querySelector(sel.replace(/\[aria-label="([^"]*)"\]/g, (m, v) => `:is([data-ko-aria-label="${v}"],[aria-label="${v}"])`));
 
+    const addr = document.getElementById('proxyAddr');
+    if (addr && s.port) addr.textContent = '127.0.0.1:' + s.port;
+    if (s.portMovedFrom && s.proxyListening !== false) {
+      const d = document.getElementById('proxyDesc');
+      if (d) d.textContent = L(`${s.portMovedFrom}번 포트를 다른 프로그램이 쓰고 있어 ${s.port}번으로 옮겼습니다. 이미 열려 있던 Claude Code는 다시 시작하세요.`, `Port ${s.portMovedFrom} is used by another program, so fiche moved to ${s.port}. Restart any Claude Code that was already open.`);
+    }
     // The proxy could not start (port taken): say so instead of showing "Running".
     if (s.proxyListening === false) {
       const badge = document.getElementById('proxyBadge');
@@ -89,8 +96,10 @@
     bind(ccSw, s.connected, async v => { const r = await api.setClaude(v); ccPaint(r); return r.connected; });
     api.onClaude(async v => { ccSw?._fsync?.(v); ccPaint(await api.status()); });
     bind(q('[aria-label="자동 실행"]'), s.autostart, async v => (await api.setAutostart(v)).autostart);
+    // The page's toast lives in another JS world here, so drive its element directly.
+    const note = msg => { const t = document.getElementById('toast'); if (!t) return; t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 4000); };
     const contribSw = q('[aria-label="데이터 기여"]');
-    bind(contribSw, s.contrib, async v => (await api.setContrib(v)).contrib);
+    bind(contribSw, s.contrib, async v => { const r = await api.setContrib(v); if (r.profileError) note(L('서버에 저장하지 못해 바꾸지 않았습니다. 잠시 뒤 다시 시도하세요.', 'Could not save to the server, so nothing changed. Try again shortly.')); return r.contrib; });
     // The server keeps the account's choice; follow it when it arrives after sign-in.
     api.onAccount?.(a => { const v = a?.me?.film?.contrib; if (typeof v === 'boolean') contribSw?._fsync?.(v); });
   });

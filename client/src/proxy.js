@@ -9,6 +9,8 @@ const engine = require('./engine');
 const net = require('./net');
 
 const PORT = 47321;
+// Spares for when another program holds PORT; 47322 is the window UI. claude.js FICHE_URL must match.
+const PORTS = [PORT, 47331, 47332, 47333, 47334, 47335, 47336, 47337, 47338, 47339];
 const stats = { requests: 0, compressed: 0, passthrough: 0, errors: 0, lastError: null };
 // Claude's own limit readings from the response headers (anthropic-ratelimit-unified-*: 7d/5h
 // utilization, reset times). Only plain numbers are kept, under whatever names the headers use, so
@@ -26,6 +28,7 @@ function readLimits(headers) {
 }
 
 function createProxy(getConfig, getInfo = async () => ({})) {
+  let port = PORT;
   // An exception here would leave Claude Code waiting on a request that never answers.
   const srv = http.createServer((req, res) => handle(req, res).catch(e => {
     stats.errors++; stats.lastError = String(e?.message || e);
@@ -81,10 +84,20 @@ function createProxy(getConfig, getInfo = async () => ({})) {
   return {
     stats,
     limits: () => (limitsAt && Date.now() - limitsAt < 7 * 864e5 ? { ...limits, age_s: Math.round((Date.now() - limitsAt) / 1000) } : {}),
-    listen: () => new Promise((ok, fail) => { srv.once('error', fail); srv.listen(PORT, '127.0.0.1', () => ok(PORT)); }),
+    // Tries the last port used first so a running Claude Code keeps its address across restarts.
+    listen: async (prefer) => {
+      for (const p of new Set([prefer, ...PORTS].filter(x => PORTS.includes(x)))) {
+        try {
+          await new Promise((ok, fail) => { srv.once('error', fail); srv.listen(p, '127.0.0.1', () => { srv.off('error', fail); ok(); }); });
+          return (port = p);
+        } catch (e) { if (e.code !== 'EADDRINUSE') throw e; }
+      }
+      throw Object.assign(new Error(`ports ${PORTS[0]}-${PORTS.at(-1)} are all in use`), { code: 'EADDRINUSE' });
+    },
+    port: () => port,
     // Open streams would keep close() waiting and the port taken; a restart needs it free now.
     close: () => new Promise(ok => { srv.close(() => ok()); srv.closeAllConnections?.(); }),
   };
 }
 
-module.exports = { createProxy, PORT };
+module.exports = { createProxy, PORT, PORTS };

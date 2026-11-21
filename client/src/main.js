@@ -11,7 +11,7 @@ const net = require('./net');
 const startup = require('./startup');
 const os = require('os');
 
-const PROXY_URL = `http://127.0.0.1:${PORT}`;
+let PROXY_URL = `http://127.0.0.1:${PORT}`, portMovedFrom = null;
 const ICON = path.join(__dirname, 'assets', 'icon.png');
 
 // Setup, uninstall and quit requests run their own short flows (src/setup.js).
@@ -73,7 +73,7 @@ async function status() {
   let connected = false, claudeError = null;
   try { connected = claude.isConnected(PROXY_URL); } catch (e) { claudeError = e.message; }
   return {
-    version: app.getVersion(), port: PORT, proxyOn: cfg.proxyOn, proxyListening: !proxyError, proxyError,
+    version: app.getVersion(), port: proxy.port(), portMovedFrom, keepDays: cfg.keepDays ?? 30, proxyOn: cfg.proxyOn, proxyListening: !proxyError, proxyError,
     connected, claudeError, claudeFound: claudeInstalled(), autoConnect: cfg.autoConnect !== false, settingsFile: claude.FILE, upstream: cfg.upstream || 'https://api.anthropic.com',
     autostart: (await startup.get()).on, store: startup.isStore, server: { base: server.BASE, ...server.lastStatus() },
     stats: proxy.stats, engine: engine.info(), contrib: cfg.contrib !== false, plan: cfg.plan || null, account: account.info(), limits: proxy.limits(),
@@ -139,16 +139,26 @@ ipcMain.handle('lang:set', (_e, l) => {
   if (win && !win.isDestroyed()) win.webContents.reload();
   return lang();
 });
+// The server copy follows the account to other PCs, so a save that fails there changes nothing here.
+async function saveProfile(patch) {
+  if (!account.signedIn()) return true;
+  const r = await account.setProfile(patch).catch(() => null);
+  return !!r?.ok;
+}
 ipcMain.handle('contrib:set', async (_e, on) => {
+  if (!(await saveProfile({ contrib: !!on }))) return { ...(await status()), profileError: true };
   cfg.contrib = !!on; saveCfg(); engine.setup(cfg, account.key());
-  if (account.signedIn()) await account.setProfile({ contrib: cfg.contrib }).catch(() => {});
+  return status();
+});
+ipcMain.handle('keep:set', async (_e, days) => {
+  if ([14, 30, 0].includes(days)) { cfg.keepDays = days; saveCfg(); engine.setup(cfg, account.key()); }
   return status();
 });
 // Plan is asked once after sign-in (handoff 4.3); film sizes are fitted to real plans.
 ipcMain.handle('plan:set', async (_e, plan) => {
   if (!['pro', 'max5', 'max10'].includes(plan)) return status();
+  if (!(await saveProfile({ plan }))) return { ...(await status()), profileError: true };
   cfg.plan = plan; saveCfg();
-  if (account.signedIn()) await account.setProfile({ plan }).catch(() => {});
   return status();
 });
 ipcMain.handle('account:signin', async () => {
@@ -246,8 +256,12 @@ app.whenReady().then(async () => {
   account.on('change', a => { try { if (win && !win.isDestroyed()) win.webContents.send('account:update', a); } catch { } });
   meter.init(app.getPath('userData'));
   try { engine.setup(cfg, account.key()); saveCfg(); engine.load().catch(() => {}); } catch (e) { console.error('engine setup', e); }
-  try { await proxy.listen(); }
-  catch (e) { proxyError = e.code === 'EADDRINUSE' ? T(`포트 ${PORT}번을 다른 프로그램이 쓰고 있습니다.`, `Port ${PORT} is used by another program.`) : String(e.message || e); }
+  try {
+    const was = cfg.port || PORT, port = await proxy.listen(cfg.port);
+    PROXY_URL = `http://127.0.0.1:${port}`;
+    if (port !== was) { portMovedFrom = was; cfg.port = port; saveCfg(); }
+  }
+  catch (e) { proxyError = e.code === 'EADDRINUSE' ? T(`포트 ${PORT}번과 예비 포트를 모두 다른 프로그램이 쓰고 있습니다.`, `Port ${PORT} and its spares are all used by other programs.`) : String(e.message || e); }
   autoConnect();
   setInterval(autoConnect, 30000);
   if (account.signedIn()) afterSignIn().catch(() => {});

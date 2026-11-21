@@ -110,7 +110,8 @@ async function status() {
   const w = Math.max(...rows.map(r => width(r[0])));
   for (const [k, v] of rows) console.log('  ' + pad(k, w + 2) + v);
   const t = (await ask('stats')).today;
-  if (t?.before) console.log('  ' + pad(T('오늘', 'today'), w + 2) + T(`${n(t.before - t.after)} 토큰 절약 (-${Math.round((1 - t.after / t.before) * 100)}%, 추정)`, `${n(t.before - t.after)} tokens saved (-${Math.round((1 - t.after / t.before) * 100)}%, estimate)`));
+  const cut = Math.max(0, (t?.before || 0) - (t?.after || 0)), cutPct = t?.before ? Math.round(cut / t.before * 100) : 0;
+  if (t?.before) console.log('  ' + pad(T('오늘', 'today'), w + 2) + T(`${n(cut)} 토큰 절약 (-${cutPct}%, 추정)`, `${n(cut)} tokens saved (-${cutPct}%, estimate)`));
 }
 
 async function login() {
@@ -134,7 +135,7 @@ async function stats() {
   const s = await ask('stats');
   if (flag('json')) return console.log(JSON.stringify(s, null, 2));
   const line = (label, d) => console.log('  ' + pad(label, 12) + (d.before
-    ? `${n(d.before)} → ${n(d.after)} ${T('토큰', 'tokens')} (-${Math.round((1 - d.after / d.before) * 100)}%) · ${n(d.requests)} ${T('요청', 'requests')}`
+    ? `${n(d.before)} → ${n(d.after)} ${T('토큰', 'tokens')} (-${Math.max(0, Math.round((1 - d.after / d.before) * 100))}%) · ${n(d.requests)} ${T('요청', 'requests')}`
     : T('기록 없음', 'nothing yet')));
   console.log(T('입력 토큰 추정치입니다.', 'Input-token estimates.'));
   line(T('오늘', 'today'), s.today);
@@ -317,12 +318,12 @@ async function main() {
     case 'contrib': {
       const on = argv[1] === 'on';
       if (!['on', 'off'].includes(argv[1])) die('fiche contrib on|off');
-      await ask('contrib', { on });
+      if ((await ask('contrib', { on })).profileError) die(T('서버에 저장하지 못해 바꾸지 않았습니다. 잠시 뒤 다시 시도하세요.', 'Could not save to the server, so nothing changed. Try again shortly.'));
       return console.log(T(`데이터 기여를 ${on ? '켰습니다' : '껐습니다'}.`, `Data contribution ${on ? 'on' : 'off'}.`));
     }
     case 'plan': {
       if (!['pro', 'max5', 'max10'].includes(argv[1])) die('fiche plan pro|max5|max10');
-      await ask('plan', { plan: argv[1] });
+      if ((await ask('plan', { plan: argv[1] })).profileError) die(T('서버에 저장하지 못해 바꾸지 않았습니다. 잠시 뒤 다시 시도하세요.', 'Could not save to the server, so nothing changed. Try again shortly.'));
       return console.log(T(`요금제를 ${argv[1]}로 저장했습니다.`, `Plan set to ${argv[1]}.`));
     }
     case 'stats': return stats();

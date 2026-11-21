@@ -71,6 +71,27 @@ await test('the launchd plist restarts a crash but respects a clean stop', async
 // The second daemon a service manager starts, while one is already running. It has to exit 0:
 // launchd (KeepAlive SuccessfulExit) and systemd (Restart=on-failure) restart a daemon that
 // fails, so a non-zero exit here is an endless restart loop a few seconds apart.
+await test('the proxy moves to a spare port when 47321 is taken, and Claude Code settings follow', async () => {
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url), src = path.join(here, '..', 'app', 'src');
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'fiche-port-')), oldHome = process.env.HOME;
+  process.env.HOME = h; fs.mkdirSync(path.join(h, '.claude'));
+  const claude = req(path.join(src, 'claude.js')), { createProxy } = req(path.join(src, 'proxy.js'));
+  process.env.HOME = oldHome;
+  const blocker = net.createServer(); await new Promise(ok => blocker.listen(47321, '127.0.0.1', ok));
+  const p = createProxy(() => ({ proxyOn: false }));
+  try {
+    assert.equal(await p.listen(undefined), 47331);
+    const read = () => JSON.parse(fs.readFileSync(claude.FILE, 'utf8')).env?.ANTHROPIC_BASE_URL;
+    fs.writeFileSync(claude.FILE, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'http://localhost:9999' } }));
+    assert.equal(claude.connect('http://127.0.0.1:47321').prev, 'http://localhost:9999');
+    assert.equal(claude.connect('http://127.0.0.1:47331').prev, undefined, 'an old fiche port must not become the upstream');
+    assert.equal(read(), 'http://127.0.0.1:47331');
+    claude.disconnect('http://127.0.0.1:47321', 'http://localhost:9999');
+    assert.equal(read(), 'http://localhost:9999', 'uninstall passes the default port and must still restore');
+  } finally { await p.close(); blocker.close(); fs.rmSync(h, { recursive: true, force: true }); }
+});
+
 await test('a duplicate daemon exits cleanly instead of looping', async () => {
   assert.equal(await portFree(), true, 'another fiche is using port 47321; stop it before running this');
   let r = await run(['start']);

@@ -18,7 +18,7 @@ const account = req('account');
 const meter = req('meter');
 const net = req('net');
 
-const PROXY_URL = `http://127.0.0.1:${PORT}`;
+let PROXY_URL = `http://127.0.0.1:${PORT}`, portMovedFrom = null;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---- config (same file name and shape as the GUI app's userData/config.json) ----
@@ -116,7 +116,7 @@ async function status() {
   return {
     version: P.version(), cli: true, pid: process.pid, platform: process.platform, arch: process.arch,
     wsl: w ? { distro: w.distro } : null,
-    port: PORT, proxyOn: cfg.proxyOn, proxyListening: !proxyError, proxyError,
+    port: proxy.port(), portMovedFrom, keepDays: cfg.keepDays ?? 30, proxyOn: cfg.proxyOn, proxyListening: !proxyError, proxyError,
     connected, claudeError, claudeFound: claudeInstalled(), autoConnect: cfg.autoConnect !== false,
     settingsFile: claude.FILE, upstream: cfg.upstream || 'https://api.anthropic.com',
     server: { base: server.BASE, ...server.lastStatus() },
@@ -138,6 +138,7 @@ async function uiCall(method, arg) {
     case 'claude:set': return handle(arg ? 'connect' : 'disconnect');
     case 'autostart:set': return setAutostart(!!arg);
     case 'contrib:set': return handle('contrib', { on: !!arg });
+    case 'keep:set': return handle('keep', { days: arg });
     case 'plan:set': return handle('plan', { plan: arg });
     case 'account:signin':
       try { await account.signIn(u => { plat.openUrl(u); }); }
@@ -211,6 +212,13 @@ function startSignIn() {
 }
 
 // ---- control commands ----
+// The server copy follows the account to other PCs, so a save that fails there changes nothing here.
+async function saveProfile(patch) {
+  if (!account.signedIn()) return true;
+  const r = await account.setProfile(patch).catch(() => null);
+  return !!r?.ok;
+}
+
 async function handle(action, args) {
   switch (action) {
     case 'ping': return { ok: true, pid: process.pid, version: P.version() };
@@ -223,13 +231,16 @@ async function handle(action, args) {
       return status();
     }
     case 'contrib':
+      if (!(await saveProfile({ contrib: !!args.on }))) return { ...(await status()), profileError: true };
       cfg.contrib = !!args.on; saveCfg(); engine.setup(cfg, account.key());
-      if (account.signedIn()) await account.setProfile({ contrib: cfg.contrib }).catch(() => { });
+      return status();
+    case 'keep':
+      if ([14, 30, 0].includes(args.days)) { cfg.keepDays = args.days; saveCfg(); engine.setup(cfg, account.key()); }
       return status();
     case 'plan':
       if (!['pro', 'max5', 'max10'].includes(args.plan)) return status();
+      if (!(await saveProfile({ plan: args.plan }))) return { ...(await status()), profileError: true };
       cfg.plan = args.plan; saveCfg();
-      if (account.signedIn()) await account.setProfile({ plan: args.plan }).catch(() => { });
       return status();
     case 'login': return startSignIn();
     case 'login:cancel': account.cancelSignIn(); return { ok: true };
@@ -280,9 +291,14 @@ async function main() {
     if (e.code === 'ERUNNING') { log('another fiche is already running; nothing to do'); process.exit(0); }
     throw e;
   }
-  try { await proxy.listen(); log(`proxy on ${PROXY_URL}`); }
+  try {
+    const was = cfg.port || PORT, port = await proxy.listen(cfg.port);
+    PROXY_URL = `http://127.0.0.1:${port}`;
+    if (port !== was) { portMovedFrom = was; cfg.port = port; saveCfg(); log(`port ${was} is in use, moved to ${port}`); }
+    log(`proxy on ${PROXY_URL}`);
+  }
   catch (e) {
-    proxyError = e.code === 'EADDRINUSE' ? `port ${PORT} is used by another program` : String(e.message || e);
+    proxyError = e.code === 'EADDRINUSE' ? `port ${PORT} and its spares are all used by other programs` : String(e.message || e);
     log('proxy failed:', proxyError);
   }
   fs.writeFileSync(P.pidFile, String(process.pid));
