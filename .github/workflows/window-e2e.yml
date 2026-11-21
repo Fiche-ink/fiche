@@ -54,9 +54,14 @@ jobs:
       - name: Desktop libraries and a virtual display
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 xvfb imagemagick
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libayatana-appindicator3-1 xvfb imagemagick dbus-x11
           Xvfb :99 -screen 0 1280x800x24 &
           echo DISPLAY=:99 >> "$GITHUB_ENV"
+          # The runner's session bus does not answer, and GTK waits on it at startup; a desktop
+          # session always has a working one.
+          echo "runner bus: ${DBUS_SESSION_BUS_ADDRESS:-none}"
+          eval "$(dbus-launch --sh-syntax)"
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
       - name: Install
         run: |
           mkdir -p ~/.claude && echo '{}' > ~/.claude/settings.json
