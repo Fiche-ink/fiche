@@ -15,8 +15,9 @@ const meter = require('./meter');
 const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const send = m => process.send?.(m);
 
-// Cache reads count 1/55 of a write toward the 5-hour limit (measured 11-20: ~51k written or ~2.8M read per 1%).
-const READ_W = 1 / 55;
+// Weights toward the 5-hour limit, in cache-write tokens (bench/quota, 11-14: ~51k written or ~2.8M read per 1%).
+// Uncached input counts 0.8 of a write and output 5x an input token, as in bench/dogfood/quota.py.
+const READ_W = 1 / 55, INPUT_W = 0.8, OUTPUT_W = 4;
 // A real cache break: the request read less than half of what the previous one had in the conversation.
 const BREAK = 0.5;
 const SYSTEM = "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -75,7 +76,9 @@ async function replay(E, { file, sid, label }) {
   // The folder name Claude Code made from the working directory loses non-ASCII letters; the entries keep the real path.
   const cwd = L.find(e => typeof e.cwd === 'string')?.cwd;
   if (cwd) label = cwd.split(/[\\/]/).filter(Boolean).pop() || label;
-  const out = { sid, label, requests: 0, first: null, last: null, before: 0, after: 0, wBefore: 0, wAfter: 0, lastBefore: 0, lastAfter: 0, breaks: 0 };
+  // real: what the session really cost (Claude Code's recorded usage, system prompt, tools and output included).
+  // saved: what fiche would have taken off it, from the conversation part only.
+  const out = { sid, label, requests: 0, first: null, last: null, before: 0, after: 0, wBefore: 0, wAfter: 0, real: 0, saved: 0, lastBefore: 0, lastAfter: 0, breaks: 0 };
   let pB = 0, pA = 0, capped = false;
   const realNow = Date.now;
   for (const r of reqs) {
@@ -97,13 +100,15 @@ async function replay(E, { file, sid, label }) {
     if (brokeReal) out.breaks++;
     const wB = brokeReal ? before : Math.max(0, before - pB);
     const wA = brokeReal || st?.divOut != null ? after : Math.max(0, after - pA);
-    out.wBefore += wB + (before - wB) * READ_W;
-    out.wAfter += wA + (after - wA) * READ_W;
+    const cB = wB + (before - wB) * READ_W, cA = wA + (after - wA) * READ_W;
+    out.wBefore += cB; out.wAfter += cA;
+    out.real += (u.cache_creation_input_tokens || 0) + read * READ_W + (u.input_tokens || 0) * INPUT_W + (u.output_tokens || 0) * OUTPUT_W;
+    out.saved += Math.max(0, cB - cA);
     out.before += before; out.after += after; out.lastBefore = before; out.lastAfter = after;
     out.requests++; out.first ??= r.t; out.last = r.t;
     pB = before; pA = after;
   }
-  for (const k of ['before', 'after', 'wBefore', 'wAfter']) out[k] = Math.round(out[k]);
+  for (const k of ['before', 'after', 'wBefore', 'wAfter', 'real', 'saved']) out[k] = Math.round(out[k]);
   return { out, capped };
 }
 

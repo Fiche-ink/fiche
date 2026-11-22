@@ -126,15 +126,16 @@ function finish(res, box) {
   return last;
 }
 
-// Totals over the sessions that finished. pct: conversation tokens sent; limitPct: weighted the way the
-// 5-hour limit counts cache writes and reads.
+// Totals over the sessions that finished. pct: conversation tokens sent. limitPct: share of the whole limit use
+// (recorded usage with system prompt, tools and output, weighted like the 5-hour limit) fiche would have saved.
 function summarize(res) {
   const s = res.sessions, sum = k => s.reduce((a, x) => a + (x[k] || 0), 0);
-  const before = sum('before'), after = sum('after'), wBefore = sum('wBefore'), wAfter = sum('wAfter');
+  const before = sum('before'), after = sum('after'), wBefore = sum('wBefore'), wAfter = sum('wAfter'), real = sum('real'), saved = sum('saved');
   return {
-    ...res, before, after, wBefore, wAfter,
+    ...res, before, after, wBefore, wAfter, real, saved,
     pct: before ? Math.round((1 - after / before) * 100) : null,
-    limitPct: wBefore ? Math.round((1 - wAfter / wBefore) * 100) : null,
+    convLimitPct: wBefore ? Math.round((1 - wAfter / wBefore) * 100) : null,
+    limitPct: real ? Math.round(Math.min(saved, real) / real * 100) : null,
   };
 }
 
