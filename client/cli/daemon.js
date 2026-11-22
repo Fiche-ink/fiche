@@ -18,6 +18,7 @@ const engine = req('engine');
 const account = req('account');
 const meter = req('meter');
 const net = req('net');
+const preview = req('preview');
 
 let PROXY_URL = `http://127.0.0.1:${PORT}`, portMovedFrom = null;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -152,6 +153,8 @@ async function uiCall(method, arg) {
     case 'stats:get': return meter.summary();
     case 'page:latest': return engine.latestPage();
     case 'netlog:get': return net.list();
+    case 'preview:get': return preview.get();
+    case 'preview:run': preview.run({ root: engine.info().root, token: account.key() }); return preview.get() || { running: true };
     case 'open:external': if (typeof arg === 'string' && /^https:\/\//.test(arg)) await plat.openUrl(arg); return null;
     default: throw Object.assign(new Error('unknown method'), { code: 'EUNKNOWN' });
   }
@@ -279,6 +282,8 @@ async function main() {
   loadCfg();
   account.init(P.dataDir, null); // no Electron safeStorage: the key file is written 0600 (account.js)
   meter.init(P.dataDir);
+  preview.init(P.dataDir);
+  preview.on('update', r => ui.broadcast('preview:update', r));
   // Someone upgrading from a CLI without notifications has had their first trimmed request long ago.
   if (!cfg.firstSavedNotified) { try { if ((meter.summary().total?.imaged || 0) > 0) { cfg.firstSavedNotified = true; saveCfg(); } } catch { } }
   try { engine.setup(cfg, account.key()); saveCfg(); engine.load().catch(e => log('engine load:', e.message)); }

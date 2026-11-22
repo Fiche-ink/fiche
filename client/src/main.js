@@ -3,12 +3,14 @@ const { app, BrowserWindow, Tray, safeStorage, Menu, ipcMain, nativeImage, shell
 const fs = require('fs'), path = require('path');
 const { createProxy, PORT } = require('./proxy');
 const claude = require('./claude');
+const mitm = require('./mitm');
 const server = require('./server');
 const engine = require('./engine');
 const account = require('./account');
 const meter = require('./meter');
 const net = require('./net');
 const startup = require('./startup');
+const preview = require('./preview');
 const os = require('os');
 
 let PROXY_URL = `http://127.0.0.1:${PORT}`, portMovedFrom = null;
@@ -173,6 +175,9 @@ ipcMain.handle('account:refresh', async () => { await account.refresh(true).catc
 ipcMain.handle('stats:get', () => meter.summary());
 ipcMain.handle('page:latest', () => engine.latestPage());
 ipcMain.handle('netlog:get', () => net.list());
+ipcMain.handle('preview:get', () => preview.get());
+ipcMain.handle('preview:run', () => { preview.run({ root: engine.info().root, token: account.key() }); return preview.get() || { running: true }; });
+preview.on('update', r => { try { if (win && !win.isDestroyed()) win.webContents.send('preview:update', r); } catch { } });
 net.on('sent', e => { try { if (win && !win.isDestroyed()) win.webContents.send('netlog:update', e); } catch { } });
 // Every compressed request is pushed to the window so the home screen can show it live.
 meter.on('update', r => {
@@ -255,11 +260,15 @@ app.whenReady().then(async () => {
   account.init(app.getPath('userData'), safeStorage);
   account.on('change', a => { try { if (win && !win.isDestroyed()) win.webContents.send('account:update', a); } catch { } });
   meter.init(app.getPath('userData'));
+  preview.init(app.getPath('userData'));
   try { engine.setup(cfg, account.key()); saveCfg(); engine.load().catch(() => {}); } catch (e) { console.error('engine setup', e); }
   try {
     const was = cfg.port || PORT, port = await proxy.listen(cfg.port);
     PROXY_URL = `http://127.0.0.1:${port}`;
     if (port !== was) { portMovedFrom = was; cfg.port = port; saveCfg(); }
+    // HTTPS_PROXY mode for Claude Desktop (mitm.js); without it the base-URL connection still works.
+    try { const ca = mitm.loadCA(app.getPath('userData')); proxy.mitm(ca); claude.useCA({ ca: ca.file, bundle: path.join(app.getPath('userData'), 'claude-ca.pem') }); }
+    catch (e) { console.error('https proxy mode', e); }
   }
   catch (e) { proxyError = e.code === 'EADDRINUSE' ? T(`포트 ${PORT}번과 예비 포트를 모두 다른 프로그램이 쓰고 있습니다.`, `Port ${PORT} and its spares are all used by other programs.`) : String(e.message || e); }
   autoConnect();

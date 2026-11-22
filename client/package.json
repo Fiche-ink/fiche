@@ -73,7 +73,9 @@
     "asarUnpack": [
       "engine/**",
       "vendor/**",
-      "node_modules/@napi-rs/**"
+      "node_modules/@napi-rs/**",
+      "src/preview-run.mjs",
+      "src/meter.js"
     ]
   },
   "dependencies": {

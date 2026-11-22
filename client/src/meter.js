@@ -73,7 +73,7 @@ function save() {
 }
 
 // One request went through the engine. `st` is the engine's stats object.
-function record({ before, after, fixed, st, model, ms, label }) {
+function record({ before, after, fixed, st, model, ms, label, sid }) {
   const at = Date.now(), saved = Math.max(0, before - after);
   const fx = Math.max(0, Math.min(fixed || 0, before, after)), convBefore = before - fx, convAfter = after - fx;
   const r = {
@@ -87,7 +87,7 @@ function record({ before, after, fixed, st, model, ms, label }) {
   d.pages = (d.pages || 0) + (st?.drawn || 0); d.px = (d.px || 0) + (st?.drawnPx || 0);
   if (r.conv) {
     const s = (data.sessions[r.conv] ||= { first: at, last: at, before: 0, after: 0, requests: 0, imaged: 0, lastBefore: 0, lastAfter: 0 });
-    s.last = at; s.before += before; s.after += after; s.convBefore = (s.convBefore || 0) + convBefore; s.convAfter = (s.convAfter || 0) + convAfter; s.requests++; s.imaged += r.imaged; s.lastBefore = before; s.lastAfter = after; s.lastConvBefore = convBefore; s.lastConvAfter = convAfter; s.model = r.model; s.pages = r.images; if (label) s.label = label;
+    s.last = at; s.before += before; s.after += after; s.convBefore = (s.convBefore || 0) + convBefore; s.convAfter = (s.convAfter || 0) + convAfter; s.requests++; s.imaged += r.imaged; s.lastBefore = before; s.lastAfter = after; s.lastConvBefore = convBefore; s.lastConvAfter = convAfter; s.model = r.model; s.pages = r.images; if (label) s.label = label; if (sid) s.sid = sid;
   }
   save();
   emitter.emit('update', r);
@@ -125,4 +125,5 @@ function summary() {
   };
 }
 
-module.exports = { init, estPayload, estFixed, record, summary, on: (ev, f) => emitter.on(ev, f) };
+const sids = () => new Set(Object.values(data.sessions).map(s => s.sid).filter(Boolean));
+module.exports = { init, estPayload, estFixed, record, summary, sids, on: (ev, f) => emitter.on(ev, f) };

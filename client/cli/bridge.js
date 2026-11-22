@@ -14,7 +14,7 @@
   const listeners = {};
   const on = name => cb => { (listeners[name] ||= []).push(cb); };
   const es = new EventSource('/api/events');
-  for (const name of ['account:update', 'netlog:update', 'stats:update', 'claude:update']) {
+  for (const name of ['account:update', 'netlog:update', 'stats:update', 'claude:update', 'preview:update']) {
     es.addEventListener(name, e => { let d = null; try { d = JSON.parse(e.data); } catch { } for (const cb of listeners[name] || []) { try { cb(d); } catch (err) { console.error(err); } } });
   }
 
@@ -38,6 +38,9 @@
     latestPage: () => call('page:latest'),
     netlog: () => call('netlog:get'),
     onNetlog: on('netlog:update'),
+    preview: () => call('preview:get'),
+    runPreview: () => call('preview:run'),
+    onPreview: on('preview:update'),
     onStats: on('stats:update'),
     openExternal: url => call('open:external', url),
     onClaude: on('claude:update'),

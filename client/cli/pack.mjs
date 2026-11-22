@@ -62,7 +62,7 @@ function stage(target) {
 
   // 2. the open client, minus the Electron-only files
   for (const f of fs.readdirSync(path.join(app, 'src')))
-    if (f.endsWith('.js') && !f.includes('.bak') && !GUI_ONLY.includes(f)) cp(path.join(app, 'src', f), path.join(dir, 'client', f));
+    if ((f.endsWith('.js') || f.endsWith('.mjs')) && !f.includes('.bak') && !GUI_ONLY.includes(f)) cp(path.join(app, 'src', f), path.join(dir, 'client', f));
 
   // 3. engine and fonts
   cp(engineFile(), path.join(dir, 'engine', 'v0.mjs'));

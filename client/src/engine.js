@@ -69,6 +69,11 @@ function projectOf(p) {
   return null;
 }
 
+// Claude Code's session id (the transcript file name), so the preview can skip sessions fiche already handled.
+function sessionOf(p) {
+  try { const id = JSON.parse(p?.metadata?.user_id || '{}')?.session_id; return typeof id === 'string' ? id.slice(0, 64) : null; } catch { return null; }
+}
+
 // `info.side` is set for requests the engine leaves alone by design (side queries such as titles, thread mode).
 async function compress(buf, info = {}) {
   // Signed out: nothing is compressed, the request goes upstream untouched (decisions come only from
@@ -78,12 +83,12 @@ async function compress(buf, info = {}) {
   try { payload = JSON.parse(buf.toString('utf8')); } catch { return null; }
   try {
     const E = await load();
-    const before = meter.estPayload(payload), fixed = meter.estFixed(payload), label = projectOf(payload), t0 = Date.now();
+    const before = meter.estPayload(payload), fixed = meter.estFixed(payload), label = projectOf(payload), sid = sessionOf(payload), t0 = Date.now();
     const st = await E.applyV0(payload);
     if (st?.skipped) info.side = String(st.skipped);
     const changed = st && !st.skipped && (st.imaged || st.movedInputs || st.movedReplies || st.cleared);
     // Unchanged requests go upstream as the original bytes, so they are metered at their original size.
-    if (st && !st.skipped) { try { meter.record({ before, fixed, after: changed ? meter.estPayload(payload) : before, st, model: payload.model, ms: Date.now() - t0, label }); } catch { } }
+    if (st && !st.skipped) { try { meter.record({ before, fixed, after: changed ? meter.estPayload(payload) : before, st, model: payload.model, ms: Date.now() - t0, label, sid }); } catch { } }
     stats.runs++;
     if (!changed) return null;
     stats.imaged += st.imaged || 0; stats.imageTokens += st.imageTokens || 0; stats.textCharsImaged += st.textCharsImaged || 0;
