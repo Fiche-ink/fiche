@@ -97,6 +97,7 @@ const tests = {
       const o = await get('other.test');
       assert.equal(o.issuer, 'test CA', 'other hosts pass through untouched');
       assert.deepEqual(seen, ['api.anthropic.com:443', 'other.test:443']);
+      assert.equal(require(path.join(src, 'net.js')).list().filter(e => e.kind === 'anthropic').length, 0, 'calls other than POST /v1/messages stay out of the sent log');
 
       claude.connect(url); // reconnect at the next start must not stack markers or lose the old values
       claude.disconnect(url, null);

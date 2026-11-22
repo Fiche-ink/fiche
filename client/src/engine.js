@@ -69,7 +69,8 @@ function projectOf(p) {
   return null;
 }
 
-async function compress(buf) {
+// `info.side` is set for requests the engine leaves alone by design (side queries such as titles, thread mode).
+async function compress(buf, info = {}) {
   // Signed out: nothing is compressed, the request goes upstream untouched (decisions come only from
   // the judge server, which needs the account).
   if (!process.env.FICHE_JUDGE_TOKEN) { stats.signedOut++; return null; }
@@ -79,6 +80,7 @@ async function compress(buf) {
     const E = await load();
     const before = meter.estPayload(payload), fixed = meter.estFixed(payload), label = projectOf(payload), t0 = Date.now();
     const st = await E.applyV0(payload);
+    if (st?.skipped) info.side = String(st.skipped);
     const changed = st && !st.skipped && (st.imaged || st.movedInputs || st.movedReplies || st.cleared);
     // Unchanged requests go upstream as the original bytes, so they are metered at their original size.
     if (st && !st.skipped) { try { meter.record({ before, fixed, after: changed ? meter.estPayload(payload) : before, st, model: payload.model, ms: Date.now() - t0, label }); } catch { } }

@@ -50,11 +50,11 @@ function createProxy(getConfig, getInfo = async () => ({})) {
     const origLen = body.length, t0 = Date.now();
     stats.requests++;
 
-    const cfg = getConfig();
+    const cfg = getConfig(), info = {};
     if (cfg.proxyOn && req.method === 'POST' && req.url.split('?')[0] === '/v1/messages') {
       // 11-17: compress on this PC with the bundled v0 engine; the server only sees numbers.
       let out = null;
-      try { out = await engine.compress(body); } catch (e) { stats.lastError = 'compress: ' + (e?.message || e); }
+      try { out = await engine.compress(body, info); } catch (e) { stats.lastError = 'compress: ' + (e?.message || e); }
       if (out) { body = out; stats.compressed++; } else stats.passthrough++;
     } else stats.passthrough++;
 
@@ -68,7 +68,10 @@ function createProxy(getConfig, getInfo = async () => ({})) {
       protocol: up.protocol, hostname: up.hostname, port: up.port || undefined,
       method: req.method, path: basePath + req.url, headers, agent: upproxy.agentFor(up),
     }, upRes => {
-      try { net.upstream({ host: up.hostname, path: basePath + req.url.split('?')[0], bytesIn: origLen, bytesOut: body.length, status: upRes.statusCode, ms: Date.now() - t0, compressed: body.length !== origLen }); } catch { }
+      // 1.3.2: the log shows main-loop conversation requests only. In HTTPS_PROXY mode every call Claude Code makes
+      // to api.anthropic.com passes here (token counts, event logs, sign-in checks, title queries); those go through
+      // untouched and listing each one buried the requests fiche works on.
+      if (req.method === 'POST' && req.url.split('?')[0] === '/v1/messages' && !info.side) try { net.upstream({ host: up.hostname, path: basePath + req.url.split('?')[0], bytesIn: origLen, bytesOut: body.length, status: upRes.statusCode, ms: Date.now() - t0, compressed: body.length !== origLen }); } catch { }
       readLimits(upRes.headers); res.writeHead(upRes.statusCode, upRes.headers);
       upRes.on('error', () => res.destroy());
       upRes.pipe(res);
