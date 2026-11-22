@@ -7,6 +7,9 @@ const { execFile } = require('child_process');
 const path = require('path');
 
 const isStore = !!process.windowsStore;
+// Windows matches a login item by path and arguments, so reading it back needs the same args it was
+// written with. Without them it always reads as off and the switch flips back on every click (1.3.1).
+const ARGS = ['--hidden'];
 
 function helper(action) {
   const exe = path.join(process.resourcesPath, 'fiche-startup.exe');
@@ -16,12 +19,12 @@ function helper(action) {
 
 // Returns { on, state, error }. state is the StartupTask state (Enabled, Disabled, DisabledByUser, ...).
 async function get() {
-  if (!isStore) return { on: app.getLoginItemSettings().openAtLogin };
+  if (!isStore) return { on: app.getLoginItemSettings({ args: ARGS }).openAtLogin };
   const r = await helper('get');
   return { on: /^Enabled/.test(r.state || ''), ...r };
 }
 async function set(on) {
-  if (!isStore) { app.setLoginItemSettings({ openAtLogin: on, args: ['--hidden'] }); return get(); }
+  if (!isStore) { app.setLoginItemSettings({ openAtLogin: on, args: ARGS }); return get(); }
   const r = await helper(on ? 'on' : 'off');
   return { on: /^Enabled/.test(r.state || ''), ...r };
 }
